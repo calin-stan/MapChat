@@ -67,6 +67,25 @@ the life of the process:
 - `getServerConfig()` from `@/lib/config/server` for route handlers. It imports `server-only`,
   so importing it from a client component is a build error.
 
+## Shared domain layer
+
+Code imported by both route handlers and client components (PRD sections 4, 6.1, 6.3, 6.5):
+
+| Module                   | Provides                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------------- |
+| `@/lib/schemas/common`   | `countChars` (Unicode code points, like Postgres `char_length`), `trimmedText`, `requiredOr` |
+| `@/lib/schemas/message`  | `authorSchema`, `messageTextSchema`, `postMessageInputSchema`                             |
+| `@/lib/schemas/room`     | `latSchema`, `lngSchema`, `createRoomInputSchema`, `roundCoord` (6 decimals)              |
+| `@/lib/schemas/query`    | `bboxSchema` (`minLng,minLat,maxLng,maxLat`), `uuidSchema`, `messagesQuerySchema`         |
+| `@/lib/schemas/types`    | `Room` and `Message` API types                                                            |
+| `@/lib/names/generate`   | `generateRoomName`, `withSuffix`, `NameCollision`, `insertWithUniqueName`                 |
+| `@/lib/supabase/server`  | `createServiceClient()`: service-role key, importable from server code only               |
+| `@/lib/supabase/browser` | `getBrowserClient()`: one anon-key client for Realtime                                    |
+
+Validation messages are short phrases meant to follow a field name, such as "is required" or
+"must be between 1 and 100 characters". Schemas validate but do not round coordinates; the
+route handler calls `roundCoord` before insert.
+
 ## Tests
 
 Unit tests live next to the code as `*.test.ts` and run in a Node environment. A component
