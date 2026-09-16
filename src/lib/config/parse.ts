@@ -84,3 +84,36 @@ export function parseClientConfig(env: Env): ClientConfig {
     realtimeIdleTimeoutMs: parsed.NEXT_PUBLIC_REALTIME_IDLE_TIMEOUT_MS,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Server configuration (PRD §6.6, scope "server only" and "client + server")
+// ---------------------------------------------------------------------------
+
+const serverEnvSchema = z.object({
+  NEXT_PUBLIC_SUPABASE_URL: requiredUrl,
+  SUPABASE_SERVICE_ROLE_KEY: requiredString,
+  HISTORY_INITIAL_SIZE: positiveIntWithDefault(100),
+  HISTORY_PAGE_SIZE: positiveIntWithDefault(20),
+});
+
+export type ServerConfig = {
+  supabaseUrl: string;
+  supabaseServiceRoleKey: string;
+  historyInitialSize: number;
+  historyPageSize: number;
+};
+
+/**
+ * Parse the server-only configuration. Pure: reads only from `env`.
+ * Throws {@link ConfigError} listing every invalid or missing variable.
+ * Never import the result into client components; use `server.ts`.
+ */
+export function parseServerConfig(env: Env): ServerConfig {
+  const parsed = parseWith(serverEnvSchema, env);
+  return {
+    supabaseUrl: parsed.NEXT_PUBLIC_SUPABASE_URL,
+    supabaseServiceRoleKey: parsed.SUPABASE_SERVICE_ROLE_KEY,
+    historyInitialSize: parsed.HISTORY_INITIAL_SIZE,
+    historyPageSize: parsed.HISTORY_PAGE_SIZE,
+  };
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ConfigError, parseClientConfig } from "@/lib/config/parse";
+import { ConfigError, parseClientConfig, parseServerConfig } from "@/lib/config/parse";
 
 const validClientEnv = {
   NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
@@ -105,5 +105,51 @@ describe("parseClientConfig errors", () => {
     ).toThrow(
       /NEXT_PUBLIC_SUPABASE_URL[\s\S]*NEXT_PUBLIC_SUPABASE_ANON_KEY[\s\S]*NEXT_PUBLIC_POLL_INTERVAL_MS/,
     );
+  });
+});
+
+describe("parseServerConfig", () => {
+  const validServerEnv = {
+    NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
+    SUPABASE_SERVICE_ROLE_KEY: "service-key",
+  };
+
+  it("applies defaults when optional variables are absent", () => {
+    const config = parseServerConfig(validServerEnv);
+
+    expect(config).toEqual({
+      supabaseUrl: "http://127.0.0.1:54321",
+      supabaseServiceRoleKey: "service-key",
+      historyInitialSize: 100,
+      historyPageSize: 20,
+    });
+  });
+
+  it("parses numeric overrides", () => {
+    const config = parseServerConfig({
+      ...validServerEnv,
+      HISTORY_INITIAL_SIZE: "50",
+      HISTORY_PAGE_SIZE: "10",
+    });
+
+    expect(config.historyInitialSize).toBe(50);
+    expect(config.historyPageSize).toBe(10);
+  });
+
+  it("throws a ConfigError listing every missing required variable", () => {
+    expect(() => parseServerConfig({})).toThrow(ConfigError);
+    expect(() => parseServerConfig({})).toThrow(
+      /NEXT_PUBLIC_SUPABASE_URL[\s\S]*SUPABASE_SERVICE_ROLE_KEY/,
+    );
+  });
+
+  it("rejects a non-positive page size", () => {
+    expect(() =>
+      parseServerConfig({ ...validServerEnv, HISTORY_PAGE_SIZE: "0" }),
+    ).toThrow(/HISTORY_PAGE_SIZE: must be a positive integer/);
+  });
+
+  it("does not require the anon key", () => {
+    expect(() => parseServerConfig(validServerEnv)).not.toThrow();
   });
 });
