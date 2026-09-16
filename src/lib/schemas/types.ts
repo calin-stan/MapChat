@@ -20,3 +20,22 @@ export type Message = {
   text: string;
   createdAt: string;
 };
+
+/**
+ * One page of a room's history (PRD 6.5): `GET /api/rooms/:id/messages` with
+ * no cursor or `?before=`. Messages are ascending, oldest first. `hasMore`
+ * tells whether an older page exists (it describes the query's snapshot).
+ */
+export type MessagePage = {
+  messages: Message[];
+  hasMore: boolean;
+};
+
+/**
+ * A catch-up page (`?after=`, PRD 6.4): ascending, at most 100 messages.
+ * `nextCursor` is the last returned id, or the requested cursor when the page
+ * is empty; the client stores it as its synchronization bookmark.
+ */
+export type CatchUpPage = MessagePage & {
+  nextCursor: string;
+};

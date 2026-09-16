@@ -112,6 +112,30 @@ Coordinates are rounded to 6 decimals before insert. Room names come from
 directly, seeds rows with the service-role key, and truncates `chatrooms` and `messages`
 between tests, like `pnpm test:db`. Do not run the two suites at the same time.
 
+## Messages API
+
+Route handlers in `src/app/api/rooms/[id]/messages/route.ts` (PRD section 6.5). Responses are
+JSON. A message is `{ id, chatroomId, author, text, createdAt }` with `createdAt` as an ISO-8601
+UTC string with exactly six fractional digits (microseconds). Every page is oldest first.
+Sort and merge with the browser-safe `compareCreatedAtId` helper; use
+`Date` only for display. Realtime rows use the same `toMessage` mapper as HTTP. History-size
+configuration accepts 1..999, leaving a sentinel under the required PostgREST row cap of at
+least 1000. Defaults are 100/20; catch-up remains 100.
+
+| Request                                          | Response                                                                                                          |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `GET /api/rooms/:id/messages`                    | `{ messages, hasMore }`: the newest `HISTORY_INITIAL_SIZE` (100)                                                  |
+| `GET /api/rooms/:id/messages?before=<id>`        | `{ messages, hasMore }`: the next `HISTORY_PAGE_SIZE` (20) strictly older than the cursor                         |
+| `GET /api/rooms/:id/messages?after=<id>`         | `{ messages, hasMore, nextCursor }`: up to 100 strictly newer; `nextCursor` is the last id, or the cursor if empty |
+| `POST /api/rooms/:id/messages` `{ author, text }` | `201 { message }`                                                                                                 |
+
+Cursors compare `(created_at, id)` tuples inside the `list_messages` database function, so
+messages with the same timestamp paginate without gaps or duplicates. Errors:
+`400 { error: { code: "validation", fields: [{ path, message }] } }` for a malformed id, a
+malformed cursor, both cursors at once, a cursor that is not a message of that room, a non-JSON
+body, or invalid fields; `404 { error: { code: "not_found" } }` for an unknown room. Browser code
+calls these through `api.messages` (`list`, `listAfter`, `post`) in `src/lib/api/client.ts`.
+
 ## Tests
 
 Unit tests live next to the code as `*.test.ts` and run in a Node environment. A component
@@ -147,3 +171,7 @@ Schema summary (see `docs/PRD.md` section 6):
   after checking `code === "23505"`, extract the exact quoted constraint name and recognize only
   `chatrooms_name_key` (retry with a new name) or `chatrooms_lat_lng_key` (a room already exists
   at that spot). Unrecognized errors follow the unexpected-error path without a name retry.
+- `list_messages(p_room, p_mode, p_cursor, p_limit)` returns one history page (`initial`, `before`
+  or `after` a cursor, comparing `(created_at, id)`). It raises `PT404` for an unknown room and
+  `PT400` for a cursor outside the room; PostgREST maps those to HTTP 404 and 400. Only
+  `service_role` may execute it.

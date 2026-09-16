@@ -33,7 +33,7 @@ export function validationError(fields: FieldIssue[]): Response {
   return json<ApiErrorBody>({ error: { code: "validation", fields } }, 400);
 }
 
-/** 404: no room (or, in chunk 5, no cursor message) with that id. */
+/** 404: no room with that id. */
 export function notFound(): Response {
   return json<ApiErrorBody>({ error: { code: "not_found" } }, 404);
 }

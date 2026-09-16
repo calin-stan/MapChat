@@ -180,3 +180,29 @@ describe("parseServerConfig", () => {
     expect(config.supabaseUrl).toBe("http://127.0.0.1:54321");
   });
 });
+
+describe("history size bounds", () => {
+  const env = {
+    NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
+    SUPABASE_SERVICE_ROLE_KEY: "test-service-key",
+  };
+
+  it.each(["HISTORY_INITIAL_SIZE", "HISTORY_PAGE_SIZE"] as const)(
+    "%s allows the sentinel at the API cap",
+    (key) => {
+      const config = parseServerConfig({ ...env, [key]: "999" });
+      expect(key === "HISTORY_INITIAL_SIZE" ? config.historyInitialSize : config.historyPageSize).toBe(999);
+    },
+  );
+
+  it.each(["HISTORY_INITIAL_SIZE", "HISTORY_PAGE_SIZE"] as const)(
+    "%s rejects values that cannot fetch a sentinel",
+    (key) => {
+      for (const value of ["1000", "1001", "9007199254740991"]) {
+        const parse = () => parseServerConfig({ ...env, [key]: value });
+        expect(parse).toThrow(ConfigError);
+        expect(parse).toThrow(new RegExp(`${key}: must be at most 999`));
+      }
+    },
+  );
+});
