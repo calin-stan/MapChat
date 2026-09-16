@@ -150,8 +150,8 @@ function createMessagesApi(fetchImpl: FetchLike): MessagesApi {
     const response = await fetchImpl(url, {
       method: init?.method ?? "GET",
       headers: init
-        ? { accept: "application/json", "content-type": "application/json" }
-        : { accept: "application/json" },
+        ? { ...JSON_HEADERS, "content-type": "application/json" }
+        : JSON_HEADERS,
       body: init?.body,
       cache: "no-store",
     });
@@ -178,9 +178,8 @@ function createMessagesApi(fetchImpl: FetchLike): MessagesApi {
 }
 
 /**
- * Typed wrappers over the JSON API for client components. Chunk 5 adds a
- * `messages` sibling to the returned object. Wrapping `fetch` in an arrow
- * keeps its `this` binding in browsers.
+ * Typed wrappers over the JSON API for client components for both rooms and
+ * messages. Wrapping `fetch` in an arrow keeps its `this` binding in browsers.
  */
 export function createApi(fetchImpl: FetchLike = (input, init) => fetch(input, init)) {
   return { rooms: createRoomsApi(fetchImpl), messages: createMessagesApi(fetchImpl) };
