@@ -43,6 +43,7 @@ to the stack.
 | `pnpm typecheck`  | `next typegen && tsc --noEmit`                      |
 | `pnpm test`       | Vitest, single run                                  |
 | `pnpm test:watch` | Vitest in watch mode                                |
+| `pnpm test:api`   | Route-handler tests in `tests/api/` (needs the stack)  |
 | `pnpm db:status`  | `supabase status` (URLs and keys for this project)  |
 | `pnpm db:env`     | Regenerate `.env.local` from the running stack      |
 
