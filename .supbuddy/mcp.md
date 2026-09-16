@@ -11,9 +11,9 @@
 From your AI client, call `get_account_info`. If it returns a result, MCP is
 reachable. If it errors with connection refused or 401, see "Setup" below.
 
-## Setup — Claude Code (assumed)
+## Setup — Claude Code
 
-Open Supbuddy → Settings → MCP → + Add client → choose "Claude Code (assumed)".
+Open Supbuddy → Settings → MCP → + Add client → choose "Claude Code".
 Or click: [supbuddy://mcp/setup?project=f9e13085-553a-464e-b693-5b7a6d2642e4&kind=claude-code](supbuddy://mcp/setup?project=f9e13085-553a-464e-b693-5b7a6d2642e4&kind=claude-code)
 
 Then paste the generated snippet into your client's config and restart it.
