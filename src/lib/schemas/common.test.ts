@@ -41,7 +41,7 @@ describe("trimmedText", () => {
     expect(schema.parse("a  \nb")).toBe("a  \nb");
   });
 
-  it.each(["", "   ", "\n\t", " ﻿"])(
+  it.each(["", "   ", "\n\t", "\u00A0\uFEFF"])(
     "rejects %j because it is empty after trimming",
     (input) => {
       expect(issuesOf(schema, input)).toEqual([range]);

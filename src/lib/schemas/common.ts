@@ -22,7 +22,7 @@ export function requiredOr(message: string) {
  * encoded as UTF-8. Both would fail at insert time as a 500 instead of a 400.
  */
 function isStorable(s: string): boolean {
-  return !s.includes("\0") && !/([\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff])/.test(s);
+  return !s.includes("\0") && !/\p{Cs}/u.test(s);
 }
 
 /**
