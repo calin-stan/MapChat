@@ -112,6 +112,34 @@ Coordinates are rounded to 6 decimals before insert. Room names come from
 directly, seeds rows with the service-role key, and truncates `chatrooms` and `messages`
 between tests, like `pnpm test:db`. Do not run the two suites at the same time.
 
+## Map
+
+The home page is a full-viewport Leaflet map (PRD sections 3, 4, 5). `src/app/page.tsx` stays a
+server component and renders `MapShell`, the client component that owns all page state. The map
+itself is loaded with `next/dynamic` and `ssr: false` because Leaflet touches `window` on import.
+
+| Module                        | Provides                                                                                     |
+| ----------------------------- | -------------------------------------------------------------------------------------------- |
+| `@/lib/map/viewport`          | `toQueryBoxes` (splits antimeridian-crossing viewports), `mergeBoxResults`, `PIN_LIMIT` (500) |
+| `@/lib/map/useRoomPins`       | 250 ms debounce, immediate viewport invalidation, request ownership, 30 s visible-tab ticks that skip pending work |
+| `@/lib/page/selection`        | `Selection` (`none` / `draft` / `room`) and `selectionReducer`                               |
+| `@/components/map/MapShell`   | The page: selection, pins, status pill and the floating panel slot                          |
+| `@/components/map/MapView`    | `MapContainer` with OSM tiles, `RoomPins` and `DraftPin`; props in, events out               |
+| `@/components/map/pinIcon`    | `divIcon` pins (`room`, `selected`, `draft`); no icon assets, no `L.Icon.Default` patch       |
+| `@/components/panel/PanelFrame` | Header / body / footer chrome shared by the welcome card, the new-room form and the room panel |
+
+Tiles come from `https://tile.openstreetmap.org` with the OpenStreetMap attribution; the map is
+limited to one world copy (`maxBounds`, `noWrap`). A viewport that crosses the antimeridian is
+queried as two boxes and the results are merged, deduplicated and capped at 500 newest-first.
+When the cap is hit the map shows "Zoom in to see more rooms"; when a refresh fails it keeps the
+previous pins and shows "Couldn't refresh rooms" until a later refresh succeeds.
+
+Viewport changes invalidate old results immediately. Periodic ticks skip a pending debounce or
+request for the current viewport. Hiding the tab cancels scheduled requests; returning refreshes
+once using the latest viewport. Single map clicks place a draft after a 500 ms arbitration window;
+double-clicks within that window cancel placement. Clicks outside valid world coordinates are ignored.
+The two Fiji seed rooms are visited separately at opposite edges of the single rendered world.
+
 ## Tests
 
 Unit tests live next to the code as `*.test.ts` and run in a Node environment. A component
@@ -126,7 +154,7 @@ Supabase stack with the Supabase CLI. Start and stop the stack through Supbuddy 
 | Command           | What it does                                                          |
 | ----------------- | --------------------------------------------------------------------- |
 | `pnpm db:migrate` | Applies migrations not yet applied to the local database              |
-| `pnpm db:reset`   | Drops and rebuilds the local database from all migrations             |
+| `pnpm db:reset`   | Drops and rebuilds the local database from all migrations, then loads `supabase/seed.sql` |
 | `pnpm test:db`    | Runs the database tests in `tests/db/` against the local stack        |
 
 `pnpm test` does not touch the database; `pnpm test:db` needs the stack running. The tests connect
@@ -134,7 +162,8 @@ with `DATABASE_URL` if set, otherwise with the `DB_URL` reported by `supabase st
 The RPC contract tests also read `API_URL` and `SERVICE_ROLE_KEY` from that CLI command and call
 the local API through Supabase's client. Any `DATABASE_URL` override must refer to the same project.
 `pnpm test:db` truncates the `chatrooms` and `messages` tables in the local database, deleting any
-local dev data in them.
+local dev data in them. Run `pnpm db:reset` again to get the seed data back. The seed is repeatable through this reset;
+its inserts are not idempotent against an already populated database.
 
 Schema summary (see `docs/PRD.md` section 6):
 
