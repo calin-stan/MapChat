@@ -26,9 +26,10 @@ insert into public.messages (chatroom_id, author, text, created_at) values
   ('00000000-0000-4000-8000-000000000007', 'mere',   'And the first one west of it.',            now() - interval '6 hours'),
   ('00000000-0000-4000-8000-000000000008', 'sam',    'Hello from downtown.',                     now() - interval '1 hour');
 
--- 600 rooms in a 30 × 20 grid, about 110 m apart, south of Bucharest, so the
--- 500-pin cap and the "Zoom in to see more rooms" pill can be seen locally
--- (PRD 4). Coordinates are computed in numeric so they are exact to 6 decimals.
+-- 600 rooms in a 30 × 20 grid, about 110 m apart north-south and about 80 m
+-- apart east-west, south of Bucharest, so the 500-pin cap and the
+-- "Zoom in to see more rooms" pill can be seen locally (PRD 4). Coordinates
+-- are computed in numeric so they are exact to 6 decimals.
 with grid as (
   select
     gx,
