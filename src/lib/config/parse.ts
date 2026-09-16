@@ -45,6 +45,15 @@ const positiveIntWithDefault = (fallback: number) =>
     return Number(value);
   });
 
+/** Leave one sentinel row under the minimum supported PostgREST max_rows of 1000. */
+export const HISTORY_MAX_SIZE = 999;
+
+const historySizeWithDefault = (fallback: number) =>
+  positiveIntWithDefault(fallback).refine(
+    (value) => Number.isSafeInteger(value) && value <= HISTORY_MAX_SIZE,
+    { error: `must be at most ${HISTORY_MAX_SIZE}` },
+  );
+
 function parseWith<T>(schema: z.ZodType<T>, env: Env): T {
   const result = schema.safeParse(env);
   if (!result.success) {
@@ -94,8 +103,8 @@ export function parseClientConfig(env: Env): ClientConfig {
 const serverEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: requiredUrl,
   SUPABASE_SERVICE_ROLE_KEY: requiredString,
-  HISTORY_INITIAL_SIZE: positiveIntWithDefault(100),
-  HISTORY_PAGE_SIZE: positiveIntWithDefault(20),
+  HISTORY_INITIAL_SIZE: historySizeWithDefault(100),
+  HISTORY_PAGE_SIZE: historySizeWithDefault(20),
 });
 
 export type ServerConfig = {

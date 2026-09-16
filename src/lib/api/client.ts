@@ -1,9 +1,10 @@
 import { z } from "zod";
 
 import type { FieldIssue } from "@/lib/api/errors";
+import type { PostMessageInput } from "@/lib/schemas/message";
 import type { Bbox } from "@/lib/schemas/query";
 import type { CreateRoomInput } from "@/lib/schemas/room";
-import type { Message, Room } from "@/lib/schemas/types";
+import type { CatchUpPage, Message, MessagePage, Room } from "@/lib/schemas/types";
 
 /** The server rejected the input; `fields` follow the `validation` error body. */
 export class ApiValidationError extends Error {
@@ -132,13 +133,57 @@ function createRoomsApi(fetchImpl: FetchLike): RoomsApi {
   };
 }
 
+export type MessagesApi = {
+  list(roomId: string, params?: { before?: string }): Promise<MessagePage>;
+  listAfter(roomId: string, after: string): Promise<CatchUpPage>;
+  post(roomId: string, input: PostMessageInput): Promise<Message>;
+};
+
+function messagesUrl(roomId: string, query?: Record<string, string>): string {
+  const base = `/api/rooms/${encodeURIComponent(roomId)}/messages`;
+  return query ? `${base}?${new URLSearchParams(query).toString()}` : base;
+}
+
+function createMessagesApi(fetchImpl: FetchLike): MessagesApi {
+  async function request<T>(url: string, init?: { method: "POST"; body: string }): Promise<T> {
+    const response = await fetchImpl(url, {
+      method: init?.method ?? "GET",
+      headers: init
+        ? { ...JSON_HEADERS, "content-type": "application/json" }
+        : JSON_HEADERS,
+      body: init?.body,
+      // History and catch-up pages must always be read fresh, never a cached
+      // response: catch-up polling and paging both rely on the latest rows.
+      cache: "no-store",
+    });
+    if (!response.ok) return failWith(response);
+    return (await response.json()) as T;
+  }
+
+  return {
+    list(roomId, params) {
+      return request<MessagePage>(
+        messagesUrl(roomId, params?.before === undefined ? undefined : { before: params.before }),
+      );
+    },
+    listAfter(roomId, after) {
+      return request<CatchUpPage>(messagesUrl(roomId, { after }));
+    },
+    async post(roomId, input) {
+      const { message } = await request<{ message: Message }>(messagesUrl(roomId), {
+        method: "POST", body: JSON.stringify(input),
+      });
+      return message;
+    },
+  };
+}
+
 /**
- * Typed wrappers over the JSON API for client components. Chunk 5 adds a
- * `messages` sibling to the returned object. Wrapping `fetch` in an arrow
- * keeps its `this` binding in browsers.
+ * Typed wrappers over the rooms and messages JSON API for client components.
+ * Wrapping `fetch` in an arrow keeps its `this` binding in browsers.
  */
 export function createApi(fetchImpl: FetchLike = (input, init) => fetch(input, init)) {
-  return { rooms: createRoomsApi(fetchImpl) };
+  return { rooms: createRoomsApi(fetchImpl), messages: createMessagesApi(fetchImpl) };
 }
 
 export type Api = ReturnType<typeof createApi>;
