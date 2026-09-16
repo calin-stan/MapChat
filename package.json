@@ -11,7 +11,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:status": "supabase status",
-    "db:env": "./scripts/write-env-local.sh"
+    "db:env": "./scripts/write-env-local.sh",
+    "db:migrate": "supabase migration up --local",
+    "db:reset": "supabase db reset --local",
+    "test:db": "vitest run --config vitest.db.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
@@ -35,6 +38,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
     "jsdom": "^30.0.1",
+    "postgres": "^3.4.9",
     "shadcn": "^4.21.0",
     "tailwindcss": "^4",
     "typescript": "^5",
