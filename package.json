@@ -14,7 +14,8 @@
     "db:env": "./scripts/write-env-local.sh",
     "db:migrate": "supabase migration up --local",
     "db:reset": "supabase db reset --local",
-    "test:db": "vitest run --config vitest.db.config.ts"
+    "test:db": "vitest run --config vitest.db.config.ts",
+    "test:api": "vitest run --config vitest.api.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

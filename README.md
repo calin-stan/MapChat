@@ -43,6 +43,7 @@ to the stack.
 | `pnpm typecheck`  | `next typegen && tsc --noEmit`                      |
 | `pnpm test`       | Vitest, single run                                  |
 | `pnpm test:watch` | Vitest in watch mode                                |
+| `pnpm test:api`   | Route-handler tests in `tests/api/` (needs the stack)  |
 | `pnpm db:status`  | `supabase status` (URLs and keys for this project)  |
 | `pnpm db:env`     | Regenerate `.env.local` from the running stack      |
 
@@ -84,7 +85,32 @@ Code imported by both route handlers and client components (PRD sections 4, 6.1,
 
 Validation messages are short phrases meant to follow a field name, such as "is required" or
 "must be between 1 and 100 characters". Schemas validate but do not round coordinates; the
-route handler calls `roundCoord` before insert.
+rooms repository (`createRoom` in `@/lib/db/rooms`) calls `roundCoord` before insert.
+
+## Rooms API
+
+Route handlers under `src/app/api/rooms/` (PRD section 6.5). They validate with the shared
+zod schemas, use the service-role client, and answer JSON. Error bodies are
+`{ "error": { "code": ... } }` with `code` one of `validation` (400, with `fields[]` of
+`{ path, message }`), `not_found` (404), `conflict` (409, with the existing `room`) or
+`unavailable` (503, retryable).
+
+| Method and path                                   | Success                                  |
+| ------------------------------------------------- | ---------------------------------------- |
+| `GET /api/rooms?bbox=minLng,minLat,maxLng,maxLat` | `200 { rooms, truncated }`, newest first, at most 500 rooms in one non-crossing box |
+| `POST /api/rooms` `{ lat, lng, author, text }`    | `201 { room, message }`; `409` if a room already exists at the rounded spot |
+| `GET /api/rooms/:id`                              | `200 { room }`                           |
+
+Room and message `createdAt` values are UTC with six fractional digits. Shared
+`compareCreatedAtId` preserves chronological order; `Date` is for display formatting only.
+Coordinates are rounded to 6 decimals before insert. Room names come from
+`insertWithUniqueName` (`@/lib/names/generate`); if every attempt collides, the route answers
+503 and nothing is stored. Client components call these through `api.rooms` in
+`@/lib/api/client`, which turns error bodies into `ApiValidationError` / `ApiRequestError`.
+
+`pnpm test:api` runs `tests/api/` against the local stack: it calls the handler functions
+directly, seeds rows with the service-role key, and truncates `chatrooms` and `messages`
+between tests, like `pnpm test:db`. Do not run the two suites at the same time.
 
 ## Tests
 
