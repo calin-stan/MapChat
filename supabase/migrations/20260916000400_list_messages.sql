@@ -41,6 +41,10 @@ begin
     raise exception 'room not found' using errcode = 'PT404';
   end if;
 
+  if p_mode is null or p_mode not in ('initial', 'before', 'after') then
+    raise exception 'p_mode must be initial, before or after' using errcode = '22023';
+  end if;
+
   if p_mode = 'initial' then
     if p_cursor is not null then
       raise exception 'p_cursor must be null for mode initial' using errcode = '22023';
@@ -53,9 +57,6 @@ begin
     return;
   end if;
 
-  if p_mode not in ('before', 'after') then
-    raise exception 'p_mode must be initial, before or after' using errcode = '22023';
-  end if;
   if p_cursor is null then
     raise exception 'p_cursor is required for mode %', p_mode using errcode = '22023';
   end if;

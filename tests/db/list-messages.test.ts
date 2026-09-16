@@ -188,6 +188,7 @@ describe("list_messages: errors", () => {
   });
 
   it.each([
+    { label: "a null mode with a cursor", mode: null as unknown as Mode, cursor: "self", limit: 10, message: /p_mode/ },
     { label: "an unknown mode", mode: "sideways" as Mode, cursor: null, limit: 10, message: /p_mode/ },
     { label: "a zero limit", mode: "initial" as Mode, cursor: null, limit: 0, message: /p_limit/ },
     { label: "a cursor with initial", mode: "initial" as Mode, cursor: "self", limit: 10, message: /p_cursor must be null/ },
