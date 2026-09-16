@@ -10,6 +10,7 @@ import {
 } from "@/lib/db/messages";
 import { postMessageInputSchema } from "@/lib/schemas/message";
 import { messagesQuerySchema, uuidSchema } from "@/lib/schemas/query";
+import type { CatchUpPage, Message, MessagePage } from "@/lib/schemas/types";
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -55,9 +56,9 @@ export async function GET(request: Request, { params }: Context): Promise<Respon
     // The client's next synchronization bookmark (PRD 6.4): the last row, or
     // the cursor it sent when nothing is newer yet.
     const nextCursor = messages.at(-1)?.id ?? mode.cursorId;
-    return json({ messages, hasMore, nextCursor }, 200);
+    return json<CatchUpPage>({ messages, hasMore, nextCursor }, 200);
   }
-  return json({ messages, hasMore }, 200);
+  return json<MessagePage>({ messages, hasMore }, 200);
 }
 
 /**
@@ -79,5 +80,5 @@ export async function POST(request: Request, { params }: Context): Promise<Respo
 
   const message = await insertMessage(createServiceClient(), routeParams.data.id, input.data);
   if (message === null) return notFound();
-  return json({ message }, 201);
+  return json<{ message: Message }>({ message }, 201);
 }

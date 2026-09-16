@@ -1,11 +1,10 @@
 import { z } from "zod";
 
 import type { FieldIssue } from "@/lib/api/errors";
+import type { PostMessageInput } from "@/lib/schemas/message";
 import type { Bbox } from "@/lib/schemas/query";
 import type { CreateRoomInput } from "@/lib/schemas/room";
-import type { Message, Room } from "@/lib/schemas/types";
-import type { PostMessageInput } from "@/lib/schemas/message";
-import type { CatchUpPage, MessagePage } from "@/lib/schemas/types";
+import type { CatchUpPage, Message, MessagePage, Room } from "@/lib/schemas/types";
 
 /** The server rejected the input; `fields` follow the `validation` error body. */
 export class ApiValidationError extends Error {
@@ -153,6 +152,8 @@ function createMessagesApi(fetchImpl: FetchLike): MessagesApi {
         ? { ...JSON_HEADERS, "content-type": "application/json" }
         : JSON_HEADERS,
       body: init?.body,
+      // History and catch-up pages must always be read fresh, never a cached
+      // response: catch-up polling and paging both rely on the latest rows.
       cache: "no-store",
     });
     if (!response.ok) return failWith(response);
@@ -178,8 +179,8 @@ function createMessagesApi(fetchImpl: FetchLike): MessagesApi {
 }
 
 /**
- * Typed wrappers over the JSON API for client components for both rooms and
- * messages. Wrapping `fetch` in an arrow keeps its `this` binding in browsers.
+ * Typed wrappers over the rooms and messages JSON API for client components.
+ * Wrapping `fetch` in an arrow keeps its `this` binding in browsers.
  */
 export function createApi(fetchImpl: FetchLike = (input, init) => fetch(input, init)) {
   return { rooms: createRoomsApi(fetchImpl), messages: createMessagesApi(fetchImpl) };

@@ -30,9 +30,13 @@ export async function insertMessageAt(
   createdAt: string,
   author = "ann",
 ): Promise<DbMessageRow> {
+  // Bind as text (OID 25): postgres.js's default timestamptz serializer
+  // round-trips a bound value through `new Date(x).toISOString()`, which caps
+  // at millisecond precision regardless of the `::timestamptz` cast. Binding
+  // as text skips that serializer, so Postgres's own cast keeps microseconds.
   const [row] = await sql<DbMessageRow[]>`
     insert into public.messages (chatroom_id, author, text, created_at)
-    values (${roomId}::uuid, ${author}, ${text}, ${createdAt}::timestamptz)
+    values (${roomId}::uuid, ${author}, ${text}, ${sql.typed(createdAt, 25)}::timestamptz)
     returning id, chatroom_id, author, text, created_at`;
   return row;
 }

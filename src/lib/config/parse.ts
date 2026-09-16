@@ -51,7 +51,7 @@ export const HISTORY_MAX_SIZE = 999;
 const historySizeWithDefault = (fallback: number) =>
   positiveIntWithDefault(fallback).refine(
     (value) => Number.isSafeInteger(value) && value <= HISTORY_MAX_SIZE,
-    { message: `must be at most ${HISTORY_MAX_SIZE}` },
+    { error: `must be at most ${HISTORY_MAX_SIZE}` },
   );
 
 function parseWith<T>(schema: z.ZodType<T>, env: Env): T {

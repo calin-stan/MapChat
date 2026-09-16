@@ -59,13 +59,7 @@ it("advances older history when microsecond ordering opposes UUID ordering", asy
     { id: uuid(2), text: "C", at: "2026-09-16T10:00:00.123300Z" },
   ];
   for (const row of fixtures) {
-    // postgres.js's default timestamptz parameter serializer round-trips any
-    // bound value through `new Date(x).toISOString()` (node_modules/postgres/
-    // src/types.js), which caps at millisecond precision regardless of an
-    // explicit `::timestamptz` cast. Forcing the bind to text (OID 25) skips
-    // that serializer, so Postgres's own cast keeps the microseconds this
-    // fixture needs; a plain `${row.at}` bind would silently collapse A/B/C
-    // to the same millisecond and this test would assert on UUID order.
+    // Explicit ids, so insertMessageAt can't be used; see its microsecond-bind comment in tests/db/fixtures.ts.
     await sql`insert into public.messages (id, chatroom_id, author, text, created_at)
       values (${row.id}::uuid, ${roomId}::uuid, 'ann', ${row.text}, ${sql.typed(row.at, 25)}::timestamptz)`;
   }

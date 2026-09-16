@@ -274,13 +274,13 @@ describe("GET cursor validation", () => {
     expect(body).toEqual(validation([{ path: "", message: "use either before or after, not both" }]));
   });
 
-  it("rejects a malformed cursor", async () => {
+  it.each(["before", "after"])("rejects a malformed %s cursor", async (key) => {
     const roomId = await insertRoom(sql, "room");
 
-    const { status, body } = await get(roomId, "?before=abc");
+    const { status, body } = await get(roomId, `?${key}=abc`);
 
     expect(status).toBe(400);
-    expect(body).toEqual(validation([{ path: "before", message: "must be a UUID" }]));
+    expect(body).toEqual(validation([{ path: key, message: "must be a UUID" }]));
   });
 });
 
