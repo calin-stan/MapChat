@@ -20,8 +20,8 @@ export const lngSchema = coordinate(-180, 180);
 
 /**
  * Body of `POST /api/rooms`: the clicked spot plus the first message.
- * Coordinates are validated, not rounded; the route handler applies
- * {@link roundCoord} before insert (PRD 6.2).
+ * Coordinates are validated, not rounded; the rooms repository
+ * (`createRoom`) applies {@link roundCoord} before insert (PRD 6.2).
  */
 export const createRoomInputSchema = z.object({
   lat: latSchema,

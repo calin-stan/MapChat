@@ -85,7 +85,7 @@ Code imported by both route handlers and client components (PRD sections 4, 6.1,
 
 Validation messages are short phrases meant to follow a field name, such as "is required" or
 "must be between 1 and 100 characters". Schemas validate but do not round coordinates; the
-route handler calls `roundCoord` before insert.
+rooms repository (`createRoom` in `@/lib/db/rooms`) calls `roundCoord` before insert.
 
 ## Rooms API
 
