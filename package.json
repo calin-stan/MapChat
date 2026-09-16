@@ -9,7 +9,9 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "db:status": "supabase status",
+    "db:env": "./scripts/write-env-local.sh"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

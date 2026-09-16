@@ -15,11 +15,11 @@ Companion to [2026-09-16-scaffolding-and-config.md](2026-09-16-scaffolding-and-c
 
 **User response:** Needs a clearer explanation.
 
-**Status:** Awaiting decision; not implemented.
+**Status:** Decided by controller ruling; implemented.
 
 **Plain-language explanation:** The PRD says configuration is checked when the app starts. The current plan checks a value only when code first asks for it. In particular, nothing in this plan calls `getClientConfig()`, so the app could start successfully even if the browser-facing Supabase key is missing. The plan must either validate all configuration during startup or change the PRD to say validation happens on first use.
 
-**Implementation note:** None yet.
+**Implementation note:** Task 5 adds `src/instrumentation.ts`, whose `register()` runs `parseClientConfig` and `parseServerConfig` from `@/lib/config/parse` (dynamically imported, not the `server-only` accessors) once at server startup when `NEXT_RUNTIME === "nodejs"`. It collects every issue from any `ConfigError` thrown, de-duplicates them, and throws a single combined `ConfigError` so a missing variable fails the process at boot with the same message format the parsers already produce, instead of only on first request. `getClientConfig()` and `getServerConfig()` are unchanged and remain memoised, lazy on first use; instrumentation does not call them, so the request-time caches are unaffected.
 
 ### 2. Supabase-generated `.gitignore`
 
@@ -35,11 +35,11 @@ Companion to [2026-09-16-scaffolding-and-config.md](2026-09-16-scaffolding-and-c
 
 **User response:** Needs a clearer explanation.
 
-**Status:** Awaiting decision; not implemented.
+**Status:** Decided by controller ruling; implemented.
 
 **Plain-language explanation:** The planned command writes directly to `.env.local`. The shell empties that file before checking whether `supabase status` succeeds. If the command fails or returns unexpected output, a working `.env.local` can be replaced by an empty or incomplete file. The proposed fix writes to a temporary file, checks that all three expected variables are present, and replaces `.env.local` only after those checks pass.
 
-**Implementation note:** None yet.
+**Implementation note:** `scripts/write-env-local.sh` now writes `supabase status -o env` output to a `mktemp`-created temp file in the same directory as `.env.local` (so the final `mv` is atomic), checks that `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are all present with non-empty values, and only then moves the temp file over `.env.local`. A `trap` removes the temp file on any exit path. Verified the failure path directly: pointing `PATH` at a fake `supabase` that prints nothing produced a clear error message, exit code 1, an unchanged `.env.local` (identical md5 before/after), and no leftover temp file.
 
 ### 4. Smoke-test shell hardening
 

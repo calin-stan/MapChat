@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Supabase CLI-managed directory: config.toml plus generated/vendored
+    // runtime bundles (edge functions, migrations cache) that are not
+    // project source.
+    "supabase/**",
   ]),
 ]);
 
