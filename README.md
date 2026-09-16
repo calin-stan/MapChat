@@ -71,3 +71,32 @@ the life of the process:
 
 Unit tests live next to the code as `*.test.ts` and run in a Node environment. A component
 test can opt into jsdom with `// @vitest-environment jsdom` as its first line.
+
+## Database
+
+The schema lives in `supabase/migrations/` as plain SQL, applied to the Supbuddy-managed local
+Supabase stack with the Supabase CLI. Start and stop the stack through Supbuddy (app or MCP
+`start_supabase` / `stop_supabase`), not with `supabase start`.
+
+| Command           | What it does                                                          |
+| ----------------- | --------------------------------------------------------------------- |
+| `pnpm db:migrate` | Applies migrations not yet applied to the local database              |
+| `pnpm db:reset`   | Drops and rebuilds the local database from all migrations             |
+| `pnpm test:db`    | Runs the database tests in `tests/db/` against the local stack        |
+
+`pnpm test` does not touch the database; `pnpm test:db` needs the stack running. The tests connect
+with `DATABASE_URL` if set, otherwise with the `DB_URL` reported by `supabase status -o env`.
+The RPC contract tests also read `API_URL` and `SERVICE_ROLE_KEY` from that CLI command and call
+the local API through Supabase's client. Any `DATABASE_URL` override must refer to the same project.
+
+Schema summary (see `docs/PRD.md` section 6):
+
+- `chatrooms` and `messages` have Row Level Security enabled. `anon` may only SELECT; there are no
+  anon write grants or policies. `service_role` (used by the route handlers) has full access.
+- `messages` is in the `supabase_realtime` publication for Postgres Changes.
+- `create_room_with_first_message(p_lat, p_lng, p_name, p_author, p_text)` inserts a room and its
+  first message atomically and returns `{"room", "message"}`. Only `service_role` may execute it.
+  Direct SQL errors include `constraint_name`. RPC errors expose the name inside `message`:
+  after checking `code === "23505"`, extract the exact quoted constraint name and recognize only
+  `chatrooms_name_key` (retry with a new name) or `chatrooms_lat_lng_key` (a room already exists
+  at that spot). Unrecognized errors follow the unexpected-error path without a name retry.
