@@ -1,67 +1,15 @@
-import { execFileSync } from "node:child_process";
-
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { type SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { connect, truncateAll, type Sql } from "./helpers";
+import { connect, createApiClient, resolveSupabaseApi, truncateAll, type Sql } from "./helpers";
 
 let sql: Sql;
 let client: SupabaseClient;
 
-interface SupabaseConfig {
-  apiUrl: string;
-  serviceRoleKey: string;
-}
-
-/**
- * Reads API_URL and SERVICE_ROLE_KEY from `supabase status -o env`. Mirrors
- * `resolveDatabaseUrl()` in ./helpers, but stays local to this file per the
- * plan: the RPC contract is the only consumer. Never logs the CLI output or
- * the key.
- */
-function resolveSupabaseConfig(): SupabaseConfig {
-  let output: string;
-  try {
-    output = execFileSync("supabase", ["status", "-o", "env"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-  } catch {
-    throw new Error(
-      "Could not run `supabase status`. Is the local stack running? Start it through Supbuddy (start_supabase).",
-    );
-  }
-
-  const values = new Map<string, string>();
-  for (const line of output.split("\n")) {
-    const eq = line.indexOf("=");
-    if (eq === -1) continue;
-    const key = line.slice(0, eq).trim();
-    const value = line
-      .slice(eq + 1)
-      .trim()
-      .replace(/^"(.*)"$/, "$1");
-    values.set(key, value);
-  }
-
-  const apiUrl = values.get("API_URL");
-  if (!apiUrl) {
-    throw new Error("`supabase status -o env` did not report API_URL. Is the local stack running?");
-  }
-  const serviceRoleKey = values.get("SERVICE_ROLE_KEY");
-  if (!serviceRoleKey) {
-    throw new Error("`supabase status -o env` did not report SERVICE_ROLE_KEY. Is the local stack running?");
-  }
-
-  return { apiUrl, serviceRoleKey };
-}
-
 beforeAll(() => {
   sql = connect();
-  const { apiUrl, serviceRoleKey } = resolveSupabaseConfig();
-  client = createClient(apiUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-  });
+  const { apiUrl, serviceRoleKey } = resolveSupabaseApi();
+  client = createApiClient(apiUrl, serviceRoleKey);
 });
 
 afterAll(async () => {
