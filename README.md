@@ -40,7 +40,7 @@ to the stack.
 | `pnpm dev`        | Next.js dev server via `supbuddy run` (project IP)  |
 | `pnpm build`      | Production build                                    |
 | `pnpm lint`       | ESLint                                              |
-| `pnpm typecheck`  | `tsc --noEmit`                                      |
+| `pnpm typecheck`  | `next typegen && tsc --noEmit`                      |
 | `pnpm test`       | Vitest, single run                                  |
 | `pnpm test:watch` | Vitest in watch mode                                |
 | `pnpm db:status`  | `supabase status` (URLs and keys for this project)  |
