@@ -26,6 +26,8 @@ fi
 
 for VAR in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY; do
   VALUE="$(grep -E "^${VAR}=" "$TMP_FILE" | cut -d= -f2- || true)"
+  VALUE="${VALUE%\"}"
+  VALUE="${VALUE#\"}"
   if [ -z "$VALUE" ]; then
     echo "error: ${VAR} is missing or empty in 'supabase status' output. .env.local left untouched." >&2
     exit 1
