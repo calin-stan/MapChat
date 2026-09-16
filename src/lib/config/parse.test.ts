@@ -87,6 +87,24 @@ describe("parseClientConfig errors", () => {
     ).toThrow(/NEXT_PUBLIC_SUPABASE_URL: must be a valid URL/);
   });
 
+  it.each(["localhost:54321", "javascript:alert(1)", "ftp://x"])(
+    "rejects a Supabase URL with a non-http(s) protocol: %j",
+    (value) => {
+      expect(() =>
+        parseClientConfig({ ...validClientEnv, NEXT_PUBLIC_SUPABASE_URL: value }),
+      ).toThrow(/NEXT_PUBLIC_SUPABASE_URL: must be a valid URL/);
+    },
+  );
+
+  it("strips a trailing slash from the Supabase URL", () => {
+    const config = parseClientConfig({
+      ...validClientEnv,
+      NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321/",
+    });
+
+    expect(config.supabaseUrl).toBe("http://127.0.0.1:54321");
+  });
+
   it.each(["abc", "0", "-5", "1.5", "1e3"])(
     "rejects poll interval %j because it is not a positive integer",
     (value) => {
@@ -151,5 +169,14 @@ describe("parseServerConfig", () => {
 
   it("does not require the anon key", () => {
     expect(() => parseServerConfig(validServerEnv)).not.toThrow();
+  });
+
+  it("strips a trailing slash from the Supabase URL", () => {
+    const config = parseServerConfig({
+      ...validServerEnv,
+      NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321/",
+    });
+
+    expect(config.supabaseUrl).toBe("http://127.0.0.1:54321");
   });
 });

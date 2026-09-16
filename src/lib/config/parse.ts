@@ -28,7 +28,9 @@ const optionalString = z
 
 const requiredString = optionalString.pipe(z.string({ error: "is required" }));
 
-const requiredUrl = requiredString.pipe(z.url({ error: "must be a valid URL" }));
+const requiredUrl = requiredString
+  .pipe(z.url({ protocol: /^https?$/, error: "must be a valid URL" }))
+  .transform((value) => value.replace(/\/+$/, ""));
 
 const positiveIntWithDefault = (fallback: number) =>
   optionalString.transform((value, ctx) => {
