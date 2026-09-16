@@ -14,20 +14,33 @@ type FakeMarkerProps = {
   eventHandlers?: { click?: () => void };
 };
 
+// Track position and eventHandlers references by room title across renders
+const markerRefs = new Map<string, { positions: ([number, number])[], eventHandlers: object[] }>();
+
 // The real `leaflet` runs in jsdom, so `pinIcon` builds genuine DivIcons; only
 // react-leaflet's Marker is replaced by a button that exposes its props.
 vi.mock("react-leaflet", () => ({
-  Marker: ({ position, icon, title, interactive, eventHandlers }: FakeMarkerProps) => (
-    <button
-      type="button"
-      data-testid="marker"
-      data-position={position.join(",")}
-      data-icon={icon.options.className}
-      data-interactive={String(interactive ?? true)}
-      title={title}
-      onClick={() => eventHandlers?.click?.()}
-    />
-  ),
+  Marker: ({ position, icon, title, interactive, eventHandlers }: FakeMarkerProps) => {
+    if (title) {
+      if (!markerRefs.has(title)) {
+        markerRefs.set(title, { positions: [], eventHandlers: [] });
+      }
+      const refs = markerRefs.get(title)!;
+      refs.positions.push(position);
+      refs.eventHandlers.push(eventHandlers!);
+    }
+    return (
+      <button
+        type="button"
+        data-testid="marker"
+        data-position={position.join(",")}
+        data-icon={icon.options.className}
+        data-interactive={String(interactive ?? true)}
+        title={title}
+        onClick={() => eventHandlers?.click?.()}
+      />
+    );
+  },
 }));
 
 const roomA: Room = {
@@ -67,6 +80,31 @@ describe("RoomPins", () => {
     fireEvent.click(screen.getAllByTestId("marker")[1]);
 
     expect(onPinClick).toHaveBeenCalledWith(roomB);
+  });
+
+  it("keeps position and eventHandlers references stable across re-renders", () => {
+    markerRefs.clear();
+    const onPinClick = vi.fn();
+    const { rerender } = render(<RoomPins rooms={[roomA, roomB]} selectedRoomId={roomA.id} onPinClick={onPinClick} />);
+
+    const roomAInitialRefs = markerRefs.get("brave-crimson-otter");
+    expect(roomAInitialRefs).toBeDefined();
+    expect(roomAInitialRefs!.positions).toHaveLength(1);
+    expect(roomAInitialRefs!.eventHandlers).toHaveLength(1);
+
+    // Rerender with same rooms and onPinClick but different selection to force re-render
+    // of RoomPin components while keeping memoised position/eventHandlers
+    rerender(<RoomPins rooms={[roomA, roomB]} selectedRoomId={roomB.id} onPinClick={onPinClick} />);
+
+    const roomARerenderedRefs = markerRefs.get("brave-crimson-otter");
+    expect(roomARerenderedRefs).toBeDefined();
+    expect(roomARerenderedRefs!.positions).toHaveLength(2);
+    expect(roomARerenderedRefs!.eventHandlers).toHaveLength(2);
+
+    // Verify position reference stayed the same for roomA (not rebuilt on rerender)
+    expect(roomARerenderedRefs!.positions[1]).toBe(roomAInitialRefs!.positions[0]);
+    // Verify eventHandlers reference stayed the same for roomA (not recreated on rerender)
+    expect(roomARerenderedRefs!.eventHandlers[1]).toBe(roomAInitialRefs!.eventHandlers[0]);
   });
 });
 
