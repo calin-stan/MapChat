@@ -75,12 +75,12 @@ describe("chatrooms table shape", () => {
   });
 
   it("generates id and created_at (UTC, now) on insert", async () => {
-    const before = Date.now();
+    const [{ dbNow }] = await sql<{ dbNow: Date }[]>`select now() as "dbNow"`;
     const room = await insertRoom({ name: "brave-crimson-otter", lat: 47.5, lng: 19.05 });
 
     expect(room.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(room.created_at).toBeInstanceOf(Date);
-    expect(Math.abs(room.created_at.getTime() - before)).toBeLessThan(5_000);
+    expect(Math.abs(room.created_at.getTime() - dbNow.getTime())).toBeLessThan(5_000);
   });
 });
 

@@ -59,8 +59,11 @@ export async function asRole<T>(
     await db.unsafe(`set role ${role}`);
     return await fn(db);
   } finally {
-    await db.unsafe("reset role");
-    db.release();
+    try {
+      await db.unsafe("reset role");
+    } finally {
+      db.release();
+    }
   }
 }
 

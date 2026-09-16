@@ -88,6 +88,8 @@ Supabase stack with the Supabase CLI. Start and stop the stack through Supbuddy 
 with `DATABASE_URL` if set, otherwise with the `DB_URL` reported by `supabase status -o env`.
 The RPC contract tests also read `API_URL` and `SERVICE_ROLE_KEY` from that CLI command and call
 the local API through Supabase's client. Any `DATABASE_URL` override must refer to the same project.
+`pnpm test:db` truncates the `chatrooms` and `messages` tables in the local database, deleting any
+local dev data in them.
 
 Schema summary (see `docs/PRD.md` section 6):
 

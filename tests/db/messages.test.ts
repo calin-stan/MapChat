@@ -161,10 +161,10 @@ describe("messages constraints", () => {
 
   it("stores created_at as a timestamp with time zone close to now", async () => {
     const chatroomId = await insertRoom("room");
-    const before = Date.now();
+    const [{ dbNow }] = await sql<{ dbNow: Date }[]>`select now() as "dbNow"`;
     const message = await insertMessage({ chatroomId, author: "ann", text: "hi" });
     expect(message.created_at).toBeInstanceOf(Date);
-    expect(Math.abs(message.created_at.getTime() - before)).toBeLessThan(5_000);
+    expect(Math.abs(message.created_at.getTime() - dbNow.getTime())).toBeLessThan(5_000);
   });
 });
 
