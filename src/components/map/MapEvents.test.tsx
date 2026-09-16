@@ -140,3 +140,45 @@ describe("MapEvents", () => {
     expect(onEmptyClick).not.toHaveBeenCalled();
   });
 });
+
+describe("MapEvents with a tall viewport", () => {
+  // At minZoom 2 the world is 1024 CSS px tall. A window taller than that has
+  // blank grey bands above and below the world, whose latitudes unproject to
+  // inside (-90, 90) but beyond Projection.SphericalMercator.MAX_LATITUDE.
+  let tallContainer: HTMLDivElement;
+  beforeEach(() => {
+    // The outer describe's beforeEach already created a 900px-tall map;
+    // replace it so only the tall map is live for these tests.
+    context.map?.remove();
+    context.map = null;
+    container.remove();
+    tallContainer = document.createElement("div");
+    document.body.append(tallContainer);
+    Object.defineProperties(tallContainer, {
+      clientWidth: { value: 1440 },
+      clientHeight: { value: 1400 },
+    });
+    context.map = createMap(tallContainer, {
+      center: [46.7712, 23.6236], zoom: 2, minZoom: 2, maxZoom: 19,
+      maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1,
+      worldCopyJump: false, doubleClickZoom: false,
+      zoomAnimation: false, fadeAnimation: false,
+    });
+  });
+  afterEach(() => {
+    cleanup();
+    context.map?.remove();
+    context.map = null;
+    tallContainer.remove();
+    vi.useRealTimers();
+  });
+
+  it("ignores a real Leaflet click on the blank band above the world", () => {
+    const onEmptyClick = vi.fn();
+    expect(context.map?.containerPointToLatLng([720, 10]).lat).toBeGreaterThan(85.0511287798);
+    render(<MapEvents onViewportChange={vi.fn()} onEmptyClick={onEmptyClick} />);
+    fireEvent.click(tallContainer, { clientX: 720, clientY: 10, detail: 1 });
+    advance(MAP_CLICK_DELAY_MS);
+    expect(onEmptyClick).not.toHaveBeenCalled();
+  });
+});

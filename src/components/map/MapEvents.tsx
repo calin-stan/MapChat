@@ -1,9 +1,16 @@
 "use client";
 
+import { Projection } from "leaflet";
 import { useCallback, useEffect, useRef } from "react";
 import { useMap, useMapEvents } from "react-leaflet";
 
 import { boundsToViewport, type LatLng, type Viewport } from "@/lib/map/viewport";
+
+// @types/leaflet 1.9 types Projection.SphericalMercator as the generic
+// `Projection` interface, which omits this constant even though it exists
+// at runtime (leaflet/dist/leaflet-src.js).
+const MAX_LATITUDE = (Projection.SphericalMercator as unknown as { MAX_LATITUDE: number })
+  .MAX_LATITUDE;
 
 export type MapEventsProps = {
   /** Once after mount, then after every completed pan, zoom or inertia glide. */
@@ -30,8 +37,20 @@ export function MapEvents({ onViewportChange, onEmptyClick }: MapEventsProps) {
     click: (event) => {
       cancelClick();
       const { lat, lng } = event.latlng;
-      // maxBounds limits panning, not every pixel in a wide container.
-      if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+      // maxBounds limits panning, not every pixel in an oversized container:
+      // a viewport wider than the projected world exposes invalid longitudes,
+      // and one taller than it (1024px at minZoom) exposes blank latitude
+      // bands beyond Projection.SphericalMercator.MAX_LATITUDE, though
+      // `unproject` still returns a finite value inside (-90, 90) there.
+      if (
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lng) ||
+        lat < -MAX_LATITUDE ||
+        lat > MAX_LATITUDE ||
+        lng < -180 ||
+        lng > 180
+      )
+        return;
       if (event.originalEvent.detail > 1) return;
       clickTimer.current = setTimeout(() => {
         clickTimer.current = null;
@@ -50,7 +69,7 @@ export function MapEvents({ onViewportChange, onEmptyClick }: MapEventsProps) {
       document.removeEventListener("keydown", cancelClick, true);
       cancelClick();
     };
-  }, [cancelClick, onEmptyClick]);
+  }, [cancelClick]);
 
   // The initial report runs once per map instance. A ref holds the latest
   // callback so a new prop identity does not repeat the initial report.
