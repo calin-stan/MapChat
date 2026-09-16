@@ -1,0 +1,73 @@
+import { describe, expect, it } from "vitest";
+
+import { type Selection, selectionReducer } from "@/lib/page/selection";
+import type { Room } from "@/lib/schemas/types";
+
+const roomA: Room = {
+  id: "00000000-0000-4000-8000-00000000000a",
+  name: "brave-crimson-otter",
+  lat: 46.7712,
+  lng: 23.6236,
+  createdAt: "2026-09-16T15:00:00.000000Z",
+};
+const roomB: Room = { ...roomA, id: "00000000-0000-4000-8000-00000000000b", name: "calm-amber-heron" };
+const prefill = { author: "ana", text: "hello" };
+
+const none: Selection = { kind: "none" };
+const draft: Selection = { kind: "draft", lat: 1, lng: 2 };
+const selectedA: Selection = { kind: "room", room: roomA, prefill };
+
+const everyState: [string, Selection][] = [
+  ["none", none],
+  ["draft", draft],
+  ["room", selectedA],
+];
+
+describe("selectionReducer", () => {
+  it.each(everyState)("clickEmpty from %s places a draft", (_, state) => {
+    expect(selectionReducer(state, { type: "clickEmpty", lat: 10, lng: 20 })).toEqual({
+      kind: "draft",
+      lat: 10,
+      lng: 20,
+    });
+  });
+
+  it.each(everyState)("clickPin from %s selects the room without prefill", (_, state) => {
+    expect(selectionReducer(state, { type: "clickPin", room: roomB })).toEqual({
+      kind: "room",
+      room: roomB,
+    });
+  });
+
+  it("clickPin on the already selected room returns the same state object", () => {
+    const next = selectionReducer(selectedA, { type: "clickPin", room: { ...roomA } });
+
+    expect(next).toBe(selectedA);
+  });
+
+  it.each(everyState)("roomCreated from %s selects the new room", (_, state) => {
+    expect(selectionReducer(state, { type: "roomCreated", room: roomB })).toEqual({
+      kind: "room",
+      room: roomB,
+    });
+  });
+
+  it.each(everyState)("movedToExisting from %s selects the room and carries the prefill", (_, state) => {
+    expect(
+      selectionReducer(state, { type: "movedToExisting", room: roomB, prefill }),
+    ).toEqual({ kind: "room", room: roomB, prefill });
+  });
+
+  it.each(everyState)("close from %s clears the selection", (_, state) => {
+    expect(selectionReducer(state, { type: "close" })).toEqual({ kind: "none" });
+  });
+
+  it("does not mutate the previous state", () => {
+    const before = structuredClone(selectedA);
+
+    selectionReducer(selectedA, { type: "clickEmpty", lat: 1, lng: 1 });
+    selectionReducer(selectedA, { type: "close" });
+
+    expect(selectedA).toEqual(before);
+  });
+});
