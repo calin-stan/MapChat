@@ -1,3 +1,9 @@
+<!-- BEGIN SUPBUDDY (managed; do not edit; checksum=4d402f3a9881c19feb4481511543ca08025aebd9ebc96dde2892adbfc124a0cc) -->
+# Supbuddy-managed (do not commit)
+*.supbuddy-backup-*
+.supbuddy/meta.json
+<!-- END SUPBUDDY -->
+
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
@@ -42,7 +48,3 @@ next-env.d.ts
 
 # keep the documented example, ignore real values
 !.env.example
-
-# Supbuddy
-.supbuddy/meta.json
-*.supbuddy-backup-*
