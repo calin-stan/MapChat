@@ -19,13 +19,13 @@ Companion to [2026-09-16-scaffolding-and-config.md](2026-09-16-scaffolding-and-c
 
 **Plain-language explanation:** The PRD says configuration is checked when the app starts. The current plan checks a value only when code first asks for it. In particular, nothing in this plan calls `getClientConfig()`, so the app could start successfully even if the browser-facing Supabase key is missing. The plan must either validate all configuration during startup or change the PRD to say validation happens on first use.
 
-**Implementation note:** Task 5 adds `src/instrumentation.ts`, whose `register()` runs `parseClientConfig` and `parseServerConfig` from `@/lib/config/parse` (dynamically imported, not the `server-only` accessors) once at server startup when `NEXT_RUNTIME === "nodejs"`. It collects every issue from any `ConfigError` thrown, de-duplicates them, and throws a single combined `ConfigError` so a missing variable fails the process at boot with the same message format the parsers already produce, instead of only on first request. `getClientConfig()` and `getServerConfig()` are unchanged and remain memoised, lazy on first use; instrumentation does not call them, so the request-time caches are unaffected.
+**Implementation note:** Task 5 adds `src/instrumentation.ts`, whose `register()` runs `parseClientConfig` and `parseServerConfig` from `@/lib/config/parse` (dynamically imported, not the `server-only` accessors) once at server startup when `NEXT_RUNTIME === "nodejs"`. It collects every issue from any `ConfigError` thrown, de-duplicates them, and throws a single combined `ConfigError` at boot with the same message format the parsers already produce. The effect of that thrown error differs by how the server is run: under `next start`, a missing or malformed variable stops the process before it accepts any requests; under `next dev`, the dev server keeps running after logging the error, and every request fails until the config is fixed and the process is restarted. `getClientConfig()` and `getServerConfig()` are unchanged and remain memoised, lazy on first use; instrumentation does not call them, so the request-time caches are unaffected.
 
 ### 2. Supabase-generated `.gitignore`
 
 **User response:** Accepted ("ok").
 
-**Status:** Implemented in the plan; application work has not started.
+**Status:** Implemented. `supabase/.gitignore` (listing `.branches/` and `.temp/`) was added in commit 4339cce ("feat: add Supbuddy-managed Supabase stack, env files, and health route").
 
 **Required change:** Do not assume Supabase initialization generates `supabase/.gitignore`. Add it explicitly with `.branches/` and `.temp/`.
 
@@ -55,7 +55,7 @@ Companion to [2026-09-16-scaffolding-and-config.md](2026-09-16-scaffolding-and-c
 
 **User response:** Accepted: make it a real health endpoint.
 
-**Status:** Implemented in the plan; application work has not started.
+**Status:** Implemented. `src/app/api/health/route.ts` was added in commit 4339cce ("feat: add Supbuddy-managed Supabase stack, env files, and health route").
 
 **Required change:** When Supabase is reachable, return HTTP 200 with `ok: true`. When it is unreachable, times out, or responds unsuccessfully, return HTTP 503 with `ok: false`. Add a short upstream request timeout. Update smoke checks to match `"supabase":"reachable"` exactly so `"unreachable"` cannot pass accidentally.
 

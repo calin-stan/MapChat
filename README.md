@@ -47,21 +47,25 @@ to the stack.
 | `pnpm db:env`     | Regenerate `.env.local` from the running stack      |
 
 Starting, stopping and restarting Supabase is done through Supbuddy (app, MCP tools
-`start_supabase` / `stop_supabase`, or `supbuddy supabase start|stop`). Do not run a bare
-`supabase start`; it would compete with Supbuddy for the same containers.
+`start_supabase` / `stop_supabase`, or `supbuddy supabase start|stop <project>`, where
+`<project>` is the id from `.supbuddy/meta.json`). Do not run a bare `supabase start`; it
+would compete with Supbuddy for the same containers.
 
 Without Supbuddy (for example in CI), run `pnpm exec next dev` instead of `pnpm dev`.
 
 ## Configuration
 
 All variables are listed with defaults in [.env.example](.env.example) and specified in
-PRD section 6.6. They are validated once per process by `src/lib/config`:
+PRD section 6.6. `src/instrumentation.ts` validates every variable once, at server start,
+listing every problem it finds in one message. Under `next start` a bad config stops the
+server before it accepts any requests; under `next dev` the server keeps running and every
+request fails until the config is fixed. Application code reads configuration through two
+accessors in `src/lib/config`, each of which parses on first use and memoises the result for
+the life of the process:
 
 - `getClientConfig()` from `@/lib/config/client` for browser-safe values (`NEXT_PUBLIC_*`).
 - `getServerConfig()` from `@/lib/config/server` for route handlers. It imports `server-only`,
   so importing it from a client component is a build error.
-
-All variables are validated once when the server starts (`src/instrumentation.ts`); a missing or malformed variable stops startup with a message that lists every problem.
 
 ## Tests
 
