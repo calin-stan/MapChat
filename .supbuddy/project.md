@@ -47,6 +47,12 @@ dodge a collision; point mappings at the canonical port instead.
 | build | `next build` | yes |
 | start | `next start` | yes |
 | lint | `eslint` | no |
-| typecheck | `tsc --noEmit` | no |
+| typecheck | `next typegen && tsc --noEmit` | no |
 | test | `vitest run` | yes |
 | test:watch | `vitest` | yes |
+| db:status | `supabase status` | no |
+| db:env | `./scripts/write-env-local.sh` | no |
+| db:migrate | `supabase migration up --local` | no |
+| db:reset | `supabase db reset --local` | no |
+| test:db | `vitest run --config vitest.db.config.ts` | yes |
+| test:api | `vitest run --config vitest.api.config.ts` | yes |
