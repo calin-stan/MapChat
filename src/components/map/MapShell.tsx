@@ -6,7 +6,9 @@ import { useCallback, useMemo, useReducer } from "react";
 import { MapStatus } from "@/components/map/MapStatus";
 import type { MapViewProps } from "@/components/map/MapView";
 import { PanelFrame } from "@/components/panel/PanelFrame";
+import { PanelSlot } from "@/components/panel/PanelSlot";
 import { WelcomeCard } from "@/components/panel/WelcomeCard";
+import { RoomPanel } from "@/components/room/RoomPanel";
 import { useRoomPins } from "@/lib/map/useRoomPins";
 import type { LatLng } from "@/lib/map/viewport";
 import { type Selection, selectionReducer } from "@/lib/page/selection";
@@ -65,7 +67,7 @@ export function MapShell({ initialSelection, initialCenter, initialZoom }: MapSh
         />
       </div>
       <MapStatus truncated={pins.truncated} refreshFailed={pins.status === "error"} />
-      <div className="absolute top-4 right-4 z-10 flex max-h-[calc(100dvh-2rem)] w-96 flex-col">
+      <PanelSlot>
         {selection.kind === "none" ? <WelcomeCard /> : null}
         {selection.kind === "draft" ? (
           // Chunk 10 replaces the body and footer with NewRoomPopup.
@@ -76,12 +78,16 @@ export function MapShell({ initialSelection, initialCenter, initialZoom }: MapSh
           </PanelFrame>
         ) : null}
         {selection.kind === "room" ? (
-          // Keyed by room id so selecting another room remounts the panel (chunk 9's feed hook resets).
-          <PanelFrame key={selection.room.id} title={selection.room.name} onClose={close}>
-            <p className="text-muted-foreground">Room panel arrives in chunk 9.</p>
-          </PanelFrame>
+          // Keyed by room id so selecting another room remounts the panel and resets its feed.
+          <RoomPanel
+            key={selection.room.id}
+            room={selection.room}
+            seed={selection.seed}
+            prefill={selection.prefill}
+            onClose={close}
+          />
         ) : null}
-      </div>
+      </PanelSlot>
     </div>
   );
 }
