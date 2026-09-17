@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { type Selection, selectionReducer } from "@/lib/page/selection";
-import type { Room } from "@/lib/schemas/types";
+import type { Message, Room } from "@/lib/schemas/types";
 
 const roomA: Room = {
   id: "00000000-0000-4000-8000-00000000000a",
@@ -12,15 +12,24 @@ const roomA: Room = {
 };
 const roomB: Room = { ...roomA, id: "00000000-0000-4000-8000-00000000000b", name: "calm-amber-heron" };
 const prefill = { author: "ana", text: "hello" };
+const first: Message = {
+  id: "00000000-0000-4000-8000-0000000000f1",
+  chatroomId: roomB.id,
+  author: "ana",
+  text: "first!",
+  createdAt: "2026-09-16T15:00:00.000000Z",
+};
 
 const none: Selection = { kind: "none" };
 const draft: Selection = { kind: "draft", lat: 1, lng: 2 };
 const selectedA: Selection = { kind: "room", room: roomA, prefill };
+const createdA: Selection = { kind: "room", room: roomA, seed: { ...first, chatroomId: roomA.id } };
 
 const everyState: [string, Selection][] = [
   ["none", none],
   ["draft", draft],
   ["room", selectedA],
+  ["created room", createdA],
 ];
 
 describe("selectionReducer", () => {
@@ -32,7 +41,7 @@ describe("selectionReducer", () => {
     });
   });
 
-  it.each(everyState)("clickPin from %s selects the room without prefill", (_, state) => {
+  it.each(everyState)("clickPin from %s selects the room without prefill or seed", (_, state) => {
     expect(selectionReducer(state, { type: "clickPin", room: roomB })).toEqual({
       kind: "room",
       room: roomB,
@@ -45,14 +54,25 @@ describe("selectionReducer", () => {
     expect(next).toBe(selectedA);
   });
 
-  it.each(everyState)("roomCreated from %s selects the new room", (_, state) => {
-    expect(selectionReducer(state, { type: "roomCreated", room: roomB })).toEqual({
+  it("clickPin on the room just created keeps its seed by returning the same state object", () => {
+    expect(selectionReducer(createdA, { type: "clickPin", room: { ...roomA } })).toBe(createdA);
+  });
+
+  it("re-opening a created room after close has no seed", () => {
+    const closed = selectionReducer(createdA, { type: "close" });
+
+    expect(selectionReducer(closed, { type: "clickPin", room: roomA })).toEqual({ kind: "room", room: roomA });
+  });
+
+  it.each(everyState)("roomCreated from %s selects the new room with its first message as seed", (_, state) => {
+    expect(selectionReducer(state, { type: "roomCreated", room: roomB, message: first })).toEqual({
       kind: "room",
       room: roomB,
+      seed: first,
     });
   });
 
-  it.each(everyState)("movedToExisting from %s selects the room and carries the prefill", (_, state) => {
+  it.each(everyState)("movedToExisting from %s carries the prefill and never a seed", (_, state) => {
     expect(
       selectionReducer(state, { type: "movedToExisting", room: roomB, prefill }),
     ).toEqual({ kind: "room", room: roomB, prefill });

@@ -1,5 +1,6 @@
 "use client";
 
+import type { LeafletKeyboardEvent } from "leaflet";
 import { memo, useMemo } from "react";
 import { Marker } from "react-leaflet";
 
@@ -13,9 +14,10 @@ export type RoomPinsProps = {
 };
 
 /**
- * One marker per room (spec §7). `title` gives the native tooltip; Leaflet
- * markers are keyboard focusable and Enter fires `click`. Marker clicks do
- * not bubble to the map, so they never place a draft pin.
+ * One marker per room (spec §7). `title` gives the native tooltip. Leaflet
+ * makes markers focusable with `role="button"` but only opens popups on Enter,
+ * so Enter and Space are handled here. Marker clicks do not bubble to the map,
+ * so they never place a draft pin.
  */
 export function RoomPins({ rooms, selectedRoomId, onPinClick }: RoomPinsProps) {
   return (
@@ -51,7 +53,13 @@ const RoomPin = memo(function RoomPin({
   );
 
   const eventHandlers = useMemo(
-    () => ({ click: () => onPinClick(room) }),
+    () => ({
+      click: () => onPinClick(room),
+      keydown: (event: LeafletKeyboardEvent) => {
+        const { key } = event.originalEvent;
+        if (key === "Enter" || key === " ") onPinClick(room);
+      },
+    }),
     [room, onPinClick]
   );
 

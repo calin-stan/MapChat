@@ -30,6 +30,8 @@ export type ComposeFormProps = {
   submitLabel?: string;
   /** Disables every control, for example while the room is unavailable. */
   disabled?: boolean;
+  /** Extra classes for the message field; the room panel bounds its height with this. */
+  textareaClassName?: string;
   /**
    * Receives the trimmed, validated values. Reject with chunk 4's
    * `ApiValidationError` to show its fields inline; any other rejection shows
@@ -50,6 +52,7 @@ export function ComposeForm({
   initialText = "",
   submitLabel = "Send",
   disabled = false,
+  textareaClassName,
   onSubmit,
 }: ComposeFormProps) {
   const id = useId();
@@ -123,6 +126,7 @@ export function ComposeForm({
           id={textId}
           name="text"
           rows={3}
+          className={textareaClassName}
           value={text}
           onChange={(event) => setTextDraft(event.target.value)}
           disabled={disabled || pending}

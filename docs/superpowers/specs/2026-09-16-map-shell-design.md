@@ -249,6 +249,9 @@ export function selectionReducer(s: Selection, a: SelectionAction): Selection;
 | any | `movedToExisting(room, prefill)` | `room(room, prefill)` |
 | any | `close` | `none` |
 
+Chunk 9 extends this contract: the room selection gains `seed?: Message` and `roomCreated`
+carries the first `message` (see `2026-09-17-room-panel-design.md` §3.1).
+
 `prefill` is carried untouched; chunk 9 consumes it. Because the room panel is keyed by
 `room.id`, selecting a different room remounts it, which resets chunk 9's feed hook.
 
@@ -270,8 +273,9 @@ Wiring inside `MapShell`:
 
 - `RoomPins({ rooms, selectedRoomId, onPinClick })` renders one `<Marker>` per room, keyed by
   id, icon `selected` when `room.id === selectedRoomId` else `room`, `title={room.name}` for the
-  native tooltip, `eventHandlers={{ click: () => onPinClick(room) }}`. Leaflet markers are
-  keyboard focusable and Enter triggers click.
+  native tooltip, and `eventHandlers` for `click` and `keydown`. Leaflet markers are keyboard
+  focusable (`role="button"`), but Leaflet only opens popups on Enter, so `RoomPins` calls
+  `onPinClick` itself for Enter and Space (corrected in chunk 9).
 - `DraftPin({ lat, lng })` renders one `<Marker interactive={false}>` with the `draft` icon. A
   click on it falls through to the map and moves the draft.
 - The draft pin is rendered only while `selection.kind === "draft"`.

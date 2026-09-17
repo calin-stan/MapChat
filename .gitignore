@@ -48,3 +48,7 @@ next-env.d.ts
 
 # keep the documented example, ignore real values
 !.env.example
+
+# playwright
+/test-results/
+/playwright-report/
