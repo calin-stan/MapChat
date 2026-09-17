@@ -13,6 +13,12 @@ import type { Room } from "@/lib/schemas/types";
 // its refreshes interact with a room inserted by a create outcome (new-room design §6).
 type RoomList = { rooms: Room[]; truncated: boolean };
 const fakeApi = vi.hoisted(() => ({ current: null as unknown }));
+// Realtime is refused, as before chunk 11: these tests describe a polling room.
+vi.mock("@/lib/feed/realtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/feed/realtime")>();
+  return { ...actual, subscribeToRoom: actual.pollingOnlySubscribe };
+});
+
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
   api: {

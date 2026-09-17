@@ -30,6 +30,8 @@ export type MessageListProps = {
   hasOlder: boolean;
   loading: FeedState["inflight"];
   onLoadOlder(): void;
+  /** Reader scrolling only; automatic following/anchoring must not count as activity. */
+  onUserScroll?(): void;
   ref?: Ref<MessageListHandle>;
 };
 
@@ -38,6 +40,8 @@ export type MessageListHandle = {
   scrollToBottom(messageId?: string): void;
   /** Start a manual-load hold; the returned callback finishes it and is idempotent. */
   holdPosition(): () => void;
+  /** The panel delegates this target's activity classification to MessageList. */
+  ownsScrollTarget(target: EventTarget | null): boolean;
 };
 
 /** One manual "Load more messages" request. Released by the commit after it finishes. */
@@ -69,7 +73,7 @@ function offsetOf(list: HTMLElement, id: string): number | null {
  * otherwise the first visible row keeps its place and the "New messages" pill
  * shows. Browser scroll anchoring is off, so displacement is corrected once.
  */
-export function MessageList({ messages, hasOlder, loading, onLoadOlder, ref }: MessageListProps) {
+export function MessageList({ messages, hasOlder, loading, onLoadOlder, onUserScroll, ref }: MessageListProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const [pill, setPill] = useState(false);
   const [holdTick, setHoldTick] = useState(0);
@@ -154,6 +158,7 @@ export function MessageList({ messages, hasOlder, loading, onLoadOlder, ref }: M
   useImperativeHandle(
     ref,
     () => ({
+      ownsScrollTarget: (target) => listRef.current !== null && target === listRef.current,
       scrollToBottom(messageId) {
         const present = messageId === undefined || committed.current.some((m) => m.id === messageId);
         if (!present) {
@@ -183,8 +188,11 @@ export function MessageList({ messages, hasOlder, loading, onLoadOlder, ref }: M
     const own = ownScrollTop.current !== null && Math.abs(list.scrollTop - ownScrollTop.current) < 1;
     ownScrollTop.current = null;
     measure();
-    // Only the reader's own scrolling hides the pill, never our anchor correction.
-    if (!own && nearBottom.current) setPill(false);
+    // Only reader scrolling counts as activity or hides the pill.
+    if (!own) {
+      onUserScroll?.();
+      if (nearBottom.current) setPill(false);
+    }
   }
 
   return (

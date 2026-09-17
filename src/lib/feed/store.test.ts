@@ -396,6 +396,108 @@ describe("channel attempts", () => {
   });
 });
 
+describe("realtime with idle fallback", () => {
+  /** As `opened`, then the join is confirmed and its catch-up is answered empty. */
+  async function live() {
+    const ctx = await opened();
+    ctx.realtime.attempts[0].handlers.onSubscribed();
+    ctx.messages.listAfter[0].resolve(catchUp([], id(2)));
+    await flush();
+    return ctx;
+  }
+
+  it("runs only the idle timer while live: no poll ever fires", async () => {
+    const { store, messages } = await live();
+
+    expect(store.getState()).toMatchObject({ channel: "subscribed", polling: false });
+    expect(vi.getTimerCount()).toBe(1); // the idle timeout
+    await vi.advanceTimersByTimeAsync(IDLE - 1);
+    expect(messages.api.listAfter).toHaveBeenCalledTimes(1); // only the confirmation catch-up
+  });
+
+  it("unsubscribes when idle and polls at once, then every interval", async () => {
+    const { store, messages, realtime } = await live();
+
+    await vi.advanceTimersByTimeAsync(IDLE);
+
+    expect(realtime.attempts[0].unsubscribe).toHaveBeenCalledTimes(1);
+    expect(store.getState()).toMatchObject({ channel: "none", polling: true });
+    expect(messages.api.listAfter).toHaveBeenCalledTimes(2); // at once, not a tick later
+    expect(messages.api.listAfter).toHaveBeenLastCalledWith(ROOM, id(2));
+    expect(realtime.attempts).toHaveLength(1); // idle never re-subscribes
+
+    messages.listAfter[1].resolve(catchUp([msg(3)], id(3)));
+    await vi.advanceTimersByTimeAsync(POLL);
+    expect(messages.api.listAfter).toHaveBeenCalledTimes(3);
+    expect(messages.api.listAfter).toHaveBeenLastCalledWith(ROOM, id(3));
+  });
+
+  it("counts a sent message as activity", async () => {
+    const { store, messages } = await live();
+    await vi.advanceTimersByTimeAsync(IDLE - 1);
+
+    const sending = store.send({ author: "ann", text: "hi" });
+    messages.post[0].resolve(msg(3));
+    await sending;
+
+    await vi.advanceTimersByTimeAsync(IDLE - 1);
+    expect(store.getState().channel).toBe("subscribed");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(store.getState()).toMatchObject({ channel: "none", polling: true });
+  });
+
+  it("tries realtime again on a send while polling, and keeps polling until confirmed", async () => {
+    const { store, messages, realtime } = await polling();
+
+    const sending = store.send({ author: "ann", text: "hi" });
+    messages.post[0].resolve(msg(3));
+    await sending;
+
+    expect(realtime.attempts).toHaveLength(2);
+    expect(store.getState()).toMatchObject({ channel: "subscribing", polling: true });
+    await vi.advanceTimersByTimeAsync(POLL);
+    expect(messages.api.listAfter).toHaveBeenCalledTimes(2); // the interval still runs
+    messages.listAfter[1].resolve(catchUp([msg(3)], id(3)));
+    await flush();
+
+    realtime.attempts[1].handlers.onSubscribed();
+
+    expect(store.getState()).toMatchObject({ channel: "subscribed", polling: false });
+    expect(vi.getTimerCount()).toBe(1); // the idle timeout; the poll interval is cleared
+    expect(messages.api.listAfter).toHaveBeenCalledTimes(3); // the confirmation catch-up
+    expect(messages.api.listAfter).toHaveBeenLastCalledWith(ROOM, id(3));
+    messages.listAfter[2].resolve(catchUp([], id(3)));
+    await vi.advanceTimersByTimeAsync(POLL * 2);
+    expect(messages.api.listAfter).toHaveBeenCalledTimes(3); // polling has stopped
+    expect(store.getState().messages.map((m) => m.id)).toEqual([id(1), id(2), id(3)]);
+  });
+
+  it("stays in polling when the attempt after a send is refused", async () => {
+    const { store, messages, realtime } = await polling();
+    const sending = store.send({ author: "ann", text: "hi" });
+    messages.post[0].resolve(msg(3));
+    await sending;
+
+    realtime.attempts[1].handlers.onFailed("too_many_connections");
+
+    expect(realtime.attempts[1].unsubscribe).toHaveBeenCalledTimes(1);
+    expect(store.getState()).toMatchObject({ channel: "none", polling: true });
+    expect(vi.getTimerCount()).toBe(1); // the same interval, not a second one
+    expect(messages.api.listAfter).toHaveBeenCalledTimes(1); // no extra immediate poll
+  });
+
+  it("leaves realtime for polling at once when the tab is hidden", async () => {
+    const { store, messages, realtime } = await live();
+
+    store.setHidden(true);
+
+    expect(realtime.attempts[0].unsubscribe).toHaveBeenCalledTimes(1);
+    expect(store.getState()).toMatchObject({ channel: "none", polling: true, hidden: true });
+    expect(messages.api.listAfter).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(1); // the poll interval; the idle timeout is gone
+  });
+});
+
 describe("visibility", () => {
   it.each([["unseeded", undefined], ["seeded", msg(7)]] as const)(
     "polls instead of subscribing when started hidden (%s)",

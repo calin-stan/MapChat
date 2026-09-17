@@ -218,7 +218,10 @@ Other rules
 - The panel root element carries `data-connection={feed.connection}`.
 - `feed.activity` is not wired in chunk 9. Chunk 11 attaches `attachActivityTracking` to the
   panel root. With chunk 9's stub `subscribe`, every room runs in polling mode and no idle
-  timer runs.
+  timer runs. Approved chunk 11 refinement (2026-09-17, plan feedback F-002): the root excludes
+  MessageList's scroll element via `ignoreScroll(target)` and `ownsScrollTarget(target)`;
+  MessageList reports reader scrolling through `onUserScroll={feed.activity}`. Automatic
+  positioning never restarts idle. The root still captures textarea/other descendant scrolling.
 - Room gone: chunk 9 stops at the persistent hint. Chunk 12 observes the same
   `error.notFound` to close the panel and show a page-level notice.
 
@@ -245,10 +248,12 @@ export type MessageListProps = {
   hasOlder: boolean;
   loading: FeedState["inflight"];
   onLoadOlder(): void;
+  onUserScroll?(): void;                 // chunk 11: excludes automatic positioning
 };
 export type MessageListHandle = {
   scrollToBottom(messageId?: string): void; // wait for that row's commit if necessary
   holdPosition(): () => void;              // returns an idempotent finish callback
+  ownsScrollTarget(target: EventTarget | null): boolean; // chunk 11: exact list element
 };
 ```
 
@@ -313,6 +318,13 @@ The same rules handle interior-only and combined before/within/after additions. 
 while scrolled up leaves scrollTop unchanged because its anchor is not displaced. Preserve
 the anchor through footer size changes too; when following the bottom outside a manual hold,
 keep following the bottom as the available list height changes.
+
+Chunk 11 user-activity contract: reuse the list's distinction between its own scrollTop writes
+and reader scroll events. Only the latter call `onUserScroll`; initial positioning, following
+incoming rows, and anchor/resize corrections do not. `ownsScrollTarget` identifies the list
+so the parent capture listener can delegate without counting its events a second time. This
+classification does not change the scroll/pill rules above. See
+[approved plan feedback F-002](../plans/2026-09-17-chunk-11-realtime-idle-fallback-feedback.md).
 
 ### 5.2 Manual holds and explicit scrolling
 

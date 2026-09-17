@@ -11,6 +11,7 @@ import { MovedNotice } from "@/components/room/MovedNotice";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ApiValidationError } from "@/lib/api/client";
+import { attachActivityTracking } from "@/lib/feed/activity";
 import { FeedNotReadyError, type FeedDeps } from "@/lib/feed/store";
 import type { FeedError } from "@/lib/feed/types";
 import { useRoomFeed } from "@/lib/feed/useRoomFeed";
@@ -50,6 +51,17 @@ export function RoomPanel({ room, seed, prefill, onClose, feedDeps }: RoomPanelP
   const feed = useRoomFeed(room.id, { seed, deps: feedDeps });
   const [name] = useDisplayName();
   const listRef = useRef<MessageListHandle>(null);
+
+  // Activity inside the panel keeps realtime alive (PRD 6.4). `feed.activity` is stable per room.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const { activity } = feed;
+  useEffect(() => {
+    if (rootRef.current === null) return;
+    return attachActivityTracking(rootRef.current, {
+      onActivity: activity,
+      ignoreScroll: (target) => listRef.current?.ownsScrollTarget(target) ?? false,
+    });
+  }, [activity]);
 
   // The 409 notice (new-room design §7). MapShell keys this panel by room id and
   // handoff revision, so both flags start false again for every hand-off.
@@ -113,12 +125,13 @@ export function RoomPanel({ room, seed, prefill, onClose, feedDeps }: RoomPanelP
         hasOlder={feed.hasOlder}
         loading={feed.loading}
         onLoadOlder={feed.loadOlder}
+        onUserScroll={activity}
       />
     );
   }
 
   return (
-    <div data-connection={feed.connection} className="flex min-h-0 w-full flex-col">
+    <div ref={rootRef} data-connection={feed.connection} className="flex min-h-0 w-full flex-col">
       <PanelFrame
         title={room.name}
         onClose={onClose}

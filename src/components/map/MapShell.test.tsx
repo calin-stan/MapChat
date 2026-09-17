@@ -34,6 +34,14 @@ vi.mock("@/lib/config/client", () => ({
   }),
 }));
 
+// No unit test opens a websocket: the default realtime adapter is a spy that never answers.
+const subscribeToRoom = vi.hoisted(() => vi.fn(() => ({ unsubscribe: () => {} })));
+
+vi.mock("@/lib/feed/realtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/feed/realtime")>()),
+  subscribeToRoom,
+}));
+
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
   api: { rooms: {}, messages: fakeMessages },
@@ -201,6 +209,20 @@ describe("MapShell", () => {
 
     expect(screen.getByRole("log").textContent).toContain("first message here");
     expect(fakeMessages.list).not.toHaveBeenCalled();
+  });
+
+  it("asks for realtime through the default adapter once a room is open", () => {
+    const seed: Message = {
+      id: "00000000-0000-4000-8000-0000000000f1",
+      chatroomId: roomA.id,
+      author: "ana",
+      text: "first message here",
+      createdAt: "2026-09-16T15:00:00.000000Z",
+    };
+    renderShell(pinsWith({ rooms: [roomA] }), { kind: "room", room: roomA, seed });
+
+    expect(subscribeToRoom).toHaveBeenCalledTimes(1);
+    expect(subscribeToRoom).toHaveBeenCalledWith(roomA.id, expect.anything());
   });
 
   it("passes a prefill to the panel's form", () => {

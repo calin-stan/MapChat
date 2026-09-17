@@ -168,15 +168,16 @@ The two Fiji seed rooms are visited separately at opposite edges of the single r
 ## Room feed
 
 The client-side core of an open room (PRD 4 "History", 6.4, 6.7) is a pure reducer, a
-framework-free store that runs its effects, and a React hook over that store. The realtime
-adapter arrives with chunk 11; until then every room polls.
+framework-free store that runs its effects, and a React hook over that store. The store talks
+to Supabase Realtime through an injected adapter; the hook's default is `subscribeToRoom`.
 Design: `docs/superpowers/specs/2026-09-16-room-feed-design.md`.
 
 | Module                  | Provides                                                                                   |
 | ----------------------- | ------------------------------------------------------------------------------------------ |
 | `@/lib/feed/types`      | `FeedState`, `FeedAction`, `FeedEffect`, `FeedError`, `Connection`, `FetchOp`             |
 | `@/lib/feed/reducer`    | `initialFeedState(roomId)`, `feedReducer(state, action)` returning `[state, effects]`, `mergeMessages`, `connectionOf`, `EMPTY_HISTORY_MESSAGE` |
-| `@/lib/feed/realtime`   | `SubscribeToRoom`, `RealtimeHandlers`, `RealtimeHandle`; `pollingOnlySubscribe`, the stand-in adapter that refuses realtime |
+| `@/lib/feed/realtime`   | `subscribeToRoom(roomId, handlers, client?)`, the Supabase Realtime adapter; `SubscribeToRoom`, `RealtimeHandlers`, `RealtimeHandle`, `TOPIC_BUSY`, `POSTGRES_READY_TIMEOUT_MS`; `pollingOnlySubscribe`, an adapter for tests and fixtures that refuses realtime |
+| `@/lib/feed/activity`   | `attachActivityTracking(el, { onActivity, ignoreScroll? })` returning the detach function              |
 | `@/lib/feed/store`      | `createFeedStore(roomId, deps, seed?)`, `FeedDeps`, `FeedStore`, `FeedNotReadyError`      |
 | `@/lib/feed/useRoomFeed` | `useRoomFeed(roomId, { seed, deps })` returning `RoomFeed`                                |
 
@@ -203,6 +204,19 @@ failures stay in `error` and never reject it. `useRoomFeed` creates the store in
 effect and disposes it in the cleanup, so rendering, server rendering and Strict Mode's
 effect replay never reuse or leak a store; it also tracks `document.visibilityState`.
 
+`subscribeToRoom` makes one attempt on channel `room:<id>`: `postgres_changes` INSERTs on
+`public.messages` filtered by `chatroom_id`, through the anon-key browser client. The SDK channel join and a
+matching Postgres `system` readiness event together confirm the attempt. A Postgres error or
+20-second readiness deadline fails it. `CHANNEL_ERROR`, `TIMED_OUT` and a `CLOSED` it did not ask for fail it,
+once: the adapter removes the channel, so the SDK cannot rejoin behind the feed's polling, and
+stays silent afterwards. Rows go through `toMessage`; a malformed row is logged and dropped.
+The SDK reuses a channel by topic and ignores `subscribe()` on one that is still leaving, so an
+attempt made while the room's previous channel is still registered fails with `TOPIC_BUSY`
+instead of hanging. The lifecycle around the adapter is the reducer's (PRD 6.4): open → try
+realtime; refused or dropped → poll at once and every 30 s; 180 s without activity →
+unsubscribe and poll; a sent message while polling → try realtime again; a hidden tab never
+holds a channel.
+
 ## Room panel
 
 Clicking a pin (or pressing Enter or Space on a focused pin) opens the room in the floating
@@ -227,8 +241,11 @@ or newer fetch shows a dismissible alert. The message field is a fixed 64 px and
 inside itself, so Send and at least 96 px of messages stay visible at 1280 × 720.
 
 The panel root has `data-connection` (`connecting`, `polling`, `realtime`) for tests; nothing
-visible. A room created in chunk 10 passes its first message through the selection as `seed`
-and opens without a history request.
+visible. The same element reports activity (`pointerdown`, `pointermove`, `keydown`, `wheel`,
+`scroll`, `touchstart`) to the feed, which postpones the realtime idle timeout; a sent message
+counts too. MessageList classifies its own scroll events: automatic following and anchor
+correction are excluded, while reader scrolling is reported once. A room created in chunk 10
+passes its first message through the selection as `seed` and opens without a history request.
 
 ## New chatroom flow
 
@@ -278,8 +295,9 @@ matchers for every file and, when a DOM exists, cleans it between tests. Target 
 ## End-to-end tests
 
 `pnpm test:e2e` runs Playwright (Chromium, 1280 × 720) against the real dev server and the
-local Supabase stack. It proves what jsdom cannot: layout, scrolling and the full HTTP path
-with polling. First time: `pnpm exec playwright install chromium`.
+local Supabase stack. It proves what jsdom cannot: layout, scrolling, the full HTTP path with
+polling, and live delivery over the local stack's Realtime server. First time: `pnpm exec
+playwright install chromium`.
 
 - The base URL is `https://map-chat.map-chat.test` (the Supbuddy mapping); set `E2E_BASE_URL`
   for another one. Playwright starts `pnpm dev` when no server answers and reuses a running one.
@@ -292,6 +310,12 @@ with polling. First time: `pnpm exec playwright install chromium`.
   ticks with `page.clock.fastForward(30_000)`. Real fetch/JSON completion is observed; the
   poll interval is not overridden. `E2E_SLOW_SETUP=1` deliberately adds 31 seconds of runner
   time after each polling room opens, proving setup cannot accidentally fire a poll.
+- Polling scenarios call `refuseRealtime(page)`, which closes the `/realtime/v1/websocket`
+  connection in the browser: the real adapter sees a refused connection and the room polls.
+  Realtime scenarios (`tests/e2e/realtime.spec.ts`) use `openLiveRoom`, which waits for
+  `data-connection="realtime"` and then pauses the clock. A row that appears while the clock is
+  paused, with no new catch-up request, came over the websocket. `goIdle` fast-forwards the
+  180 s idle timeout.
 - `src/app/e2e/**/page.dev.tsx` are fixture pages for these tests. `next.config.ts` lists the
   `dev.tsx` page extension only outside production, so `next build` does not contain them.
 

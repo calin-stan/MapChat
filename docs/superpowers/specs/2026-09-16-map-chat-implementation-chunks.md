@@ -651,12 +651,17 @@ PRD sections: 6.4 (all), 6.1 (anon key only), 7 (Free plan limits).
 Scope
 - `lib/feed/realtime.ts`: adapter around `getBrowserClient().channel('room:<id>')` with
   `postgres_changes` `INSERT` on `public.messages`, filter `chatroom_id=eq.<id>`. Maps
-  `SUBSCRIBED` → `subscribed`, `CHANNEL_ERROR` / `TIMED_OUT` / `CLOSED`-before-subscribed →
-  `subscribeFailed(reason)`, payload rows → `received(Message)` (snake_case → camelCase).
-- `lib/feed/activity.ts`: `attachActivityTracking(el, onActivity, onHidden)` for pointer,
-  keyboard, scroll, touch inside the panel, plus `visibilitychange` (hidden → `idle` at once).
-- `useRoomFeed`: implement `subscribe`/`unsubscribe` effects with the adapter; wire idle timer
-  to `realtimeIdleTimeoutMs`; `RoomPanel` calls `attachActivityTracking` on its root.
+  channel `SUBSCRIBED` plus matching Postgres `system` readiness → `subscribed`,
+  `CHANNEL_ERROR` / `TIMED_OUT` / an unrequested `CLOSED`, Postgres readiness error, or
+  20-second readiness deadline → `channelFailed(reason)`, payload rows → `received(Message)`
+  (snake_case → camelCase).
+- `lib/feed/activity.ts`: `attachActivityTracking(el, { onActivity })` for pointer, keyboard,
+  wheel, scroll and touch inside the panel, with `ignoreScroll(target)` delegating the list
+  element to `MessageList.onUserScroll`. Automatic positioning is excluded. Document visibility is owned by `useRoomFeed`
+  since chunk 9 (room-feed design §7), not by activity tracking.
+- `useRoomFeed`: `subscribeToRoom` replaces the stand-in as the default adapter; the store
+  already interprets `subscribe`/`unsubscribe` and the idle timer (chunk 9). `RoomPanel`
+  calls `attachActivityTracking` on its root.
 
 Interfaces produced
 ```ts
@@ -670,10 +675,11 @@ export function subscribeToRoom(roomId: string, handlers: {
 Acceptance
 - Unit: adapter with a fake channel object maps each status to the right handler; payload
   mapping test.
-- Hook test with fake adapter: `subscribeFailed` → polling starts immediately; idle timer
+- Hook test with fake adapter: `channelFailed` → polling starts immediately; idle timer
   fires → unsubscribe + immediate poll; `send` while polling re-subscribes; hidden tab → idle.
-- Manual smoke (PRD 8): two browsers, message appears without reload; after 3 minutes idle the
-  Network tab shows the websocket closed and a poll fired at once; sending re-opens it.
+- Manual smoke (PRD 8): two browsers, message appears without reload; at the 3-minute idle
+  timeout the channel leaves (`phx_leave`) and a poll fires at once; the Network tab shows the
+  websocket closed about 50 s later (supabase-js deferred disconnect); sending re-opens it.
 
 Depends on: chunks 8, 9.
 

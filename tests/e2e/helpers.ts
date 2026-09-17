@@ -155,11 +155,24 @@ export async function waitForCatchUpIdle(page: Page, roomId: string, minimum: nu
   }).toBe(true);
 }
 
-/** Opens and settles the startup catch-up, then freezes time before scenario writes. */
+/**
+ * Closes every Realtime websocket before it reaches the server, which is what a
+ * refused connection looks like to the client (PRD 6.4): the room falls back to polling.
+ */
+export async function refuseRealtime(page: Page): Promise<void> {
+  await page.routeWebSocket(/\/realtime\/v1\/websocket/, (ws) => ws.close());
+}
+
+/** The panel root's `data-connection`: "connecting", "realtime" or "polling". */
+export const connectionOf = (page: Page) => page.locator("[data-connection]");
+
+/** Opens with realtime refused and settles the startup catch-up, then freezes time before scenario writes. */
 export async function openPollingRoom(page: Page, room: Room): Promise<Locator> {
+  await refuseRealtime(page);
   await observeCatchUps(page);
   await page.clock.install();
   const log = await openRoom(page, room);
+  await expect(connectionOf(page)).toHaveAttribute("data-connection", "polling");
   await waitForCatchUpIdle(page, room.id, 1);
   // A future instant avoids pauseAt rejecting a timestamp already passed during the tool round trip.
   // If this crosses a tick, settle that request too, while no scenario writes exist yet.
@@ -175,6 +188,42 @@ export async function openPollingRoom(page: Page, room: Room): Promise<Locator> 
     expect(await probeOf(page, room.id)).toEqual(before);
   }
   return log;
+}
+
+export const REALTIME_IDLE_TIMEOUT_MS = 180_000;
+
+/**
+ * Opens with realtime allowed: waits for the confirmed channel and settles its
+ * catch-up, then freezes time, so no poll or idle timeout fires unless a test
+ * advances the clock. The websocket transport stays real; SDK heartbeat and timeout timers follow the controlled clock.
+ * Each clock jump fires the SDK heartbeat, and a jump before the previous heartbeat's reply arrives would make
+ * realtime-js close the socket for a heartbeat timeout, so scenarios leave real time between jumps.
+ */
+export async function openLiveRoom(page: Page, room: Room): Promise<Locator> {
+  await observeCatchUps(page);
+  await page.clock.install();
+  const log = await openRoom(page, room);
+  await expect(connectionOf(page)).toHaveAttribute("data-connection", "realtime");
+  await waitForCatchUpIdle(page, room.id, 1); // the confirmation catch-up
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+  await page.clock.runFor(32);
+  return log;
+}
+
+/** This room's catch-up requests started so far; all of them have settled. */
+export async function settledCatchUps(page: Page, roomId: string): Promise<number> {
+  const probe = await probeOf(page, roomId);
+  expect(probe.started).toBe(probe.settled);
+  return probe.started;
+}
+
+/** The idle timeout fires: the room leaves realtime and polls at once. */
+export async function goIdle(page: Page, roomId: string): Promise<void> {
+  const before = await settledCatchUps(page, roomId);
+  await page.clock.fastForward(REALTIME_IDLE_TIMEOUT_MS);
+  await expect(connectionOf(page)).toHaveAttribute("data-connection", "polling");
+  await waitForCatchUpIdle(page, roomId, before + 1);
+  await page.clock.runFor(32);
 }
 
 /** One deliberate tick; wait for real JSON consumption before checking the rendered result. */

@@ -1,6 +1,16 @@
 import { expect, test, type Page, type Request } from "@playwright/test";
 
-import { clickEmptySpot, fillCompose, observeCatchUps, pollNow, rows, waitForCatchUpIdle, type Message, type Room } from "./helpers";
+import {
+  clickEmptySpot,
+  fillCompose,
+  observeCatchUps,
+  pollNow,
+  refuseRealtime,
+  rows,
+  waitForCatchUpIdle,
+  type Message,
+  type Room,
+} from "./helpers";
 
 const INFO_TEXT = "This chatroom will receive a name after the first message is sent.";
 const MOVED_TEXT = "A chatroom already exists here, you have been moved to it. Your message has not been sent.";
@@ -47,6 +57,7 @@ async function pressCreate<T>(page: Page, status: number): Promise<T> {
 test("1. create a room and land in it, seeded", async ({ page }) => {
   const requests = watchMessageRequests(page);
   await observeCatchUps(page); // armed before the room exists; keyed by id once Create answers
+  await refuseRealtime(page); // this scenario counts polls, so the room must not go live
   await page.clock.install(); // before navigation, so the poll interval belongs to this clock
   await page.goto("/");
 

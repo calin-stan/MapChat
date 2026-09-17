@@ -15,6 +15,12 @@ import type { Message, Room } from "@/lib/schemas/types";
 import { DISPLAY_NAME_KEY } from "@/lib/storage/displayName";
 
 const fakePins = vi.hoisted(() => ({ current: null as RoomPins | null }));
+// Realtime is refused, as before chunk 11: these tests describe a polling room.
+vi.mock("@/lib/feed/realtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/feed/realtime")>();
+  return { ...actual, subscribeToRoom: actual.pollingOnlySubscribe };
+});
+
 vi.mock("@/lib/map/useRoomPins", () => ({
   useRoomPins: () => {
     if (fakePins.current === null) throw new Error("test did not set fakePins");

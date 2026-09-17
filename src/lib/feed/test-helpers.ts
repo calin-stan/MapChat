@@ -87,14 +87,23 @@ export const TEST_CONFIG = { pollIntervalMs: 30_000, realtimeIdleTimeoutMs: 180_
 export function manualTimers() {
   const intervals = new Map<number, () => void>();
   let nextId = 1;
+  let idleStarts = 0;
   const timers = {
     setInterval: (callback: () => void) => {
       intervals.set(nextId, callback);
       return nextId++;
     },
     clearInterval: (handle: number) => void intervals.delete(handle),
-    setTimeout: () => 0, // the idle timer never fires in these tests
+    // The idle timer never fires in these tests; they count how often it is (re)started.
+    setTimeout: () => {
+      idleStarts += 1;
+      return 0;
+    },
     clearTimeout: () => {},
   } as unknown as FeedTimers;
-  return { timers, tick: () => [...intervals.values()].forEach((callback) => callback()) };
+  return {
+    timers,
+    tick: () => [...intervals.values()].forEach((callback) => callback()),
+    idleStarts: () => idleStarts,
+  };
 }

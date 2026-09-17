@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react"
 
 import { api } from "@/lib/api/client";
 import { getClientConfig } from "@/lib/config/client";
-import { pollingOnlySubscribe } from "@/lib/feed/realtime";
+import { subscribeToRoom } from "@/lib/feed/realtime";
 import { connectionOf, initialFeedState } from "@/lib/feed/reducer";
 import { FeedNotReadyError, createFeedStore, type FeedDeps, type FeedStore } from "@/lib/feed/store";
 import type { Connection, FeedError, FeedState } from "@/lib/feed/types";
@@ -82,7 +82,7 @@ function createBridge(roomId: string, options: RoomFeedOptions) {
 function resolveDeps(deps: Partial<FeedDeps> = {}): FeedDeps {
   return {
     messages: deps.messages ?? api.messages,
-    subscribe: deps.subscribe ?? pollingOnlySubscribe,
+    subscribe: deps.subscribe ?? subscribeToRoom,
     config: deps.config ?? getClientConfig(),
     timers: deps.timers,
   };
