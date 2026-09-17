@@ -1,8 +1,13 @@
 "use client";
 
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
-import { submitErrors, toComposeErrors, type ComposeErrors } from "@/components/compose/fieldErrors";
+import {
+  SUBMIT_FAILED_MESSAGE,
+  submitErrors,
+  toComposeErrors,
+  type ComposeErrors,
+} from "@/components/compose/fieldErrors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +26,13 @@ import { writeDisplayName } from "@/lib/storage/displayName";
 export const AUTHOR_MAX = AUTHOR_MAX_CHARS;
 export const TEXT_MAX = TEXT_MAX_CHARS;
 
+/**
+ * A fixed 64 px message field that scrolls inside itself (room-panel design
+ * §4.1), so a long draft never pushes the submit button out of the panel slot.
+ * Pass it as `textareaClassName`; the room panel and the new-room popup both do.
+ */
+export const BOUNDED_TEXTAREA_CLASS = "field-sizing-fixed h-16 resize-none overflow-y-auto";
+
 export type ComposeFormProps = {
   /** Shown in the name field until the user edits it; a later value is adopted while untouched. */
   initialAuthor: string;
@@ -32,6 +44,12 @@ export type ComposeFormProps = {
   disabled?: boolean;
   /** Extra classes for the message field; the room panel bounds its height with this. */
   textareaClassName?: string;
+  /** Focus this field once, the first time the form is enabled after mount. */
+  autoFocusField?: "author" | "text";
+  /** Replaces SUBMIT_FAILED_MESSAGE for rejections that are neither validation nor `unavailable`. */
+  submitFailedMessage?: string;
+  /** Errors for this form mount; used to restore a rejected create. Later values are ignored. */
+  initialErrors?: ComposeErrors;
   /**
    * Receives the trimmed, validated values. Reject with chunk 4's
    * `ApiValidationError` to show its fields inline; any other rejection shows
@@ -53,6 +71,9 @@ export function ComposeForm({
   submitLabel = "Send",
   disabled = false,
   textareaClassName,
+  autoFocusField,
+  submitFailedMessage = SUBMIT_FAILED_MESSAGE,
+  initialErrors,
   onSubmit,
 }: ComposeFormProps) {
   const id = useId();
@@ -63,8 +84,19 @@ export function ComposeForm({
   // arrives after hydration (see useDisplayName) is adopted without an effect.
   const [authorDraft, setAuthorDraft] = useState<string | null>(null);
   const [textDraft, setTextDraft] = useState<string | null>(null);
-  const [errors, setErrors] = useState<ComposeErrors>({});
+  const [errors, setErrors] = useState<ComposeErrors>(() => initialErrors ?? {});
   const [pending, setPending] = useState(false);
+
+  // Focus once, the first time the form is enabled. An effect rather than the
+  // `autoFocus` attribute, which cannot wait for a form that mounts disabled.
+  const authorRef = useRef<HTMLInputElement>(null);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+  const focused = useRef(false);
+  useEffect(() => {
+    if (autoFocusField === undefined || focused.current || disabled || pending) return;
+    focused.current = true;
+    (autoFocusField === "author" ? authorRef : textRef).current?.focus();
+  }, [autoFocusField, disabled, pending]);
 
   const author = authorDraft ?? initialAuthor;
   const text = textDraft ?? initialText;
@@ -87,7 +119,7 @@ export function ComposeForm({
       writeDisplayName(parsed.data.author);
       setTextDraft("");
     } catch (error) {
-      setErrors(submitErrors(error));
+      setErrors(submitErrors(error, submitFailedMessage));
     } finally {
       setPending(false);
     }
@@ -103,6 +135,7 @@ export function ComposeForm({
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={authorId}>Display name</Label>
         <Input
+          ref={authorRef}
           id={authorId}
           name="author"
           autoComplete="nickname"
@@ -123,6 +156,7 @@ export function ComposeForm({
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={textId}>Message</Label>
         <Textarea
+          ref={textRef}
           id={textId}
           name="text"
           rows={3}

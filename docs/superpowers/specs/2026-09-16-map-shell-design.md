@@ -12,7 +12,9 @@ The map fills the page. Pins for the rooms inside the viewport appear and refres
 and a timer. Clicking an empty spot places a draft pin. Clicking a pin selects that room. One
 floating panel in the top-right corner shows, depending on the selection, a greeting, the
 new-room form or the room panel. Panel contents beyond the greeting are placeholders that
-chunks 9 and 10 replace.
+chunks 9 and 10 replace. (Superseded: chunks 9 and 10 have since shipped the real new-room form
+and room panel described in PRD §3; "placeholder" below is historical, describing this chunk's
+own scope at the time it was written.)
 
 Decisions taken in brainstorming that extend the chunks document:
 
@@ -45,6 +47,7 @@ app/page.tsx (server)  ──renders──►  MapShell (client)
                                         ├─ MapStatus (truncation / refresh error pill)
                                         └─ panel slot: WelcomeCard | new-room placeholder | room placeholder
                                              (all inside PanelFrame)     components/panel/PanelFrame.tsx
+                                             (superseded: NewRoomPopup / RoomPanel, chunks 9-10)
 ```
 
 `MapView` receives data as props and emits three events. It holds no application state. All
@@ -78,10 +81,11 @@ containing:
   one child chosen by `selection.kind`:
   - `none` → `WelcomeCard`: a `PanelFrame` without a close button whose body reads
     "Click on the map to start a chat".
-  - `draft` → placeholder `PanelFrame` titled "New chatroom" with a close button and a body
-    showing the coordinates to six decimals. Chunk 10 replaces the body and footer.
-  - `room` → placeholder `PanelFrame` titled with `room.name`, with a close button. Rendered with
-    `key={room.id}`. Chunk 9 replaces it with `RoomPanel`.
+  - `draft` → `NewRoomPopup`, keyed with `draftPanelKey(handoff)`. Ordinary moves preserve
+    the revision and key; a create failure increments the revision and restores a fresh popup.
+  - `room` → `RoomPanel`, keyed with `roomPanelKey(handoff, selection.room)`. A different room
+    changes the key normally; every created or conflict outcome increments the revision so an
+    outcome for the already-selected room still mounts a fresh panel.
 - `MapStatus`, `absolute top-4 left-1/2 -translate-x-1/2 z-10`: a small pill that shows
   "Zoom in to see more rooms" when `truncated` is true, or "Couldn't refresh rooms" when the
   last refresh failed. Truncation wins if both apply. Hidden otherwise.
@@ -252,8 +256,13 @@ export function selectionReducer(s: Selection, a: SelectionAction): Selection;
 Chunk 9 extends this contract: the room selection gains `seed?: Message` and `roomCreated`
 carries the first `message` (see `2026-09-17-room-panel-design.md` §3.1).
 
-`prefill` is carried untouched; chunk 9 consumes it. Because the room panel is keyed by
-`room.id`, selecting a different room remounts it, which resets chunk 9's feed hook.
+Chunk 10 keeps `selectionReducer` as the public pure selection transition table and wraps it in
+`handoffReducer` inside `MapShell`. The wrapper owns `{ selection, revision, recovery }`. Ordinary
+empty-map, pin, and close actions delegate to `selectionReducer`; `created`, `conflict`, and
+`failed` update selection and handoff metadata atomically. Draft panels use `draft:<revision>` and
+room panels use `<room.id>:<revision>`. The revision changes only for those three outcomes, so an
+ordinary repeat click on the selected pin preserves the mounted panel while an outcome targeting
+that same room mounts a fresh one.
 
 `MapShell` props:
 
@@ -261,13 +270,15 @@ carries the first `message` (see `2026-09-17-room-panel-design.md` §3.1).
 export type MapShellProps = { initialSelection: Selection; initialCenter: LatLng; initialZoom: number };
 ```
 
-Wiring inside `MapShell`:
+Wiring:
 
-- `onViewportChange` → `pins.setViewport`.
-- `onEmptyClick` → `dispatch(clickEmpty)`.
-- `onPinClick` → `dispatch(clickPin)`.
-- Close button → `dispatch(close)`.
-- Chunk 10 will add `roomCreated` + `pins.insertRoom` and `movedToExisting`.
+- `onViewportChange` → `pins.setViewport`
+- empty map click → dispatch the handoff `clickEmpty` action
+- pin click → dispatch the handoff `clickPin` action
+- panel close → dispatch the handoff `close` action
+- `NewRoomPopup.onCreated` → `pins.insertRoom(room)` and dispatch `created(room, message)`
+- `NewRoomPopup.onConflict` → `pins.insertRoom(room)` and dispatch `conflict(room, prefill)`
+- `NewRoomPopup.onFailed` → dispatch `failed(input, error)`
 
 ## 7. Pins and click handling
 
@@ -305,7 +316,7 @@ Usage by later chunks:
 | --- | --- | --- | --- |
 | `WelcomeCard` (chunk 6) | "Map Chat", no close | "Click on the map to start a chat" | none |
 | `NewRoomPopup` (chunk 10) | "New chatroom" + info icon | one-line hint | `ComposeForm` "Create" |
-| `RoomPanel` (chunk 9) | `RoomTitle` | `MessageList` | backlog notice + `ComposeForm` "Send" |
+| `RoomPanel` (chunk 9) | `room.name` (no `RoomTitle`, new-room design decision 5) | `MessageList` | moved notice, fetch alert, backlog notice + `ComposeForm` "Send" |
 
 Message list rules for chunk 9:
 
@@ -346,7 +357,8 @@ Unit (Vitest, Node):
   rejected box keeps old pins and sets `error`, and the next success clears it; the interval
   runs only while visible; a visibility restore refreshes immediately; `insertRoom` dedupes.
 
-Component (Vitest, jsdom, `react-leaflet` mocked):
+Component (Vitest, jsdom, `react-leaflet` mocked; superseded by chunks 9-10's own component
+suites once `NewRoomPopup` and `RoomPanel` replaced the placeholders these describe):
 
 - `RoomPins` renders one marker per room and gives the selected room the `selected` icon.
 - `MapShell` shows the greeting first; the "New chatroom" placeholder after `onEmptyClick`; the

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FaSpinner, FaTimes } from "react-icons/fa";
 
-import { ComposeForm } from "@/components/compose/ComposeForm";
+import { BOUNDED_TEXTAREA_CLASS, ComposeForm } from "@/components/compose/ComposeForm";
 import { PanelFrame } from "@/components/panel/PanelFrame";
 import { BacklogNotice } from "@/components/room/BacklogNotice";
 import { MessageList, type MessageListHandle } from "@/components/room/MessageList";
+import { MovedNotice } from "@/components/room/MovedNotice";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ApiValidationError } from "@/lib/api/client";
@@ -35,12 +36,6 @@ export const OLDER_FAILED = "Couldn't load older messages. Try again.";
 export const NEWER_FAILED = "Couldn't check for new messages. Retrying automatically.";
 export const NEWER_FAILED_BACKLOG = "Couldn't check for new messages. Use Load more messages to retry.";
 
-/**
- * A fixed 64 px message field that scrolls inside itself (room-panel design
- * §4.1), so a long draft never pushes Send or the list out of the panel.
- */
-const TEXTAREA_CLASS = "field-sizing-fixed h-16 resize-none overflow-y-auto";
-
 function fetchAlertText(error: FeedError, backlog: boolean): string {
   if (error.op === "older") return OLDER_FAILED;
   return backlog ? NEWER_FAILED_BACKLOG : NEWER_FAILED;
@@ -56,6 +51,11 @@ export function RoomPanel({ room, seed, prefill, onClose, feedDeps }: RoomPanelP
   const [name] = useDisplayName();
   const listRef = useRef<MessageListHandle>(null);
 
+  // The 409 notice (new-room design §7). MapShell keys this panel by room id and
+  // handoff revision, so both flags start false again for every hand-off.
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
+  const [sentOnce, setSentOnce] = useState(false);
+
   // The visitor sees fixed copy; the raw message goes to the console, once per error object.
   const { error } = feed;
   const logged = useRef<FeedError | null>(null);
@@ -68,6 +68,7 @@ export function RoomPanel({ room, seed, prefill, onClose, feedDeps }: RoomPanelP
   async function submit(input: PostMessageInput): Promise<void> {
     try {
       const message = await feed.send(input);
+      setSentOnce(true); // the prefilled draft is no longer unsent
       listRef.current?.scrollToBottom(message.id); // applied once this row has committed
     } catch (failure) {
       if (failure instanceof FeedNotReadyError) {
@@ -91,6 +92,8 @@ export function RoomPanel({ room, seed, prefill, onClose, feedDeps }: RoomPanelP
   const gone = error?.notFound === true;
   const failedToOpen = !gone && error?.op === "initial";
   const fetchAlert = feed.ready && error !== null && error.op !== "initial" ? error : null;
+  // Derived from `prefill`, which only `movedToExisting` sets. Not with the room-gone hint.
+  const moved = prefill !== undefined && !noticeDismissed && !sentOnce && !gone;
 
   let body: ReactNode;
   if (gone) body = <p className="text-muted-foreground">{ROOM_GONE_HINT}</p>;
@@ -121,6 +124,7 @@ export function RoomPanel({ room, seed, prefill, onClose, feedDeps }: RoomPanelP
         onClose={onClose}
         footer={
           <div className="flex w-full flex-col gap-2">
+            {moved ? <MovedNotice onDismiss={() => setNoticeDismissed(true)} /> : null}
             {fetchAlert ? (
               <Alert className="has-data-[slot=alert-action]:pr-10">
                 <AlertDescription>{fetchAlertText(fetchAlert, feed.backlog)}</AlertDescription>
@@ -143,7 +147,9 @@ export function RoomPanel({ room, seed, prefill, onClose, feedDeps }: RoomPanelP
               disabled={!feed.ready}
               initialAuthor={prefill?.author ?? name}
               initialText={prefill?.text}
-              textareaClassName={TEXTAREA_CLASS}
+              textareaClassName={BOUNDED_TEXTAREA_CLASS}
+              // Reached through the new-room flow: the button that held focus is gone.
+              autoFocusField={seed !== undefined || prefill !== undefined ? "text" : undefined}
               onSubmit={submit}
             />
           </div>

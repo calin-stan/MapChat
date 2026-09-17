@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SUBMIT_FAILED_MESSAGE } from "@/components/compose/fieldErrors";
+import { MOVED_NOTICE_TEXT } from "@/components/room/MovedNotice";
 import {
   LOAD_FAILED_HINT,
   NEWER_FAILED,
@@ -324,5 +325,125 @@ describe("RoomPanel submit", () => {
 
     await waitFor(() => expect(screen.getByText(SUBMIT_FAILED_MESSAGE)).toBeInTheDocument());
     expect(text()).toHaveValue("hello");
+  });
+});
+
+describe("RoomPanel moved notice", () => {
+  const prefill = { author: "ana", text: "unsent draft" };
+  const notice = () => screen.queryByText(MOVED_NOTICE_TEXT);
+  const dismissNotice = () =>
+    within(screen.getByText(MOVED_NOTICE_TEXT).closest<HTMLElement>('[role="status"]')!).getByRole("button", {
+      name: "Dismiss",
+    });
+
+  it("shows with a prefill while opening, as a status", () => {
+    setup({ prefill });
+
+    expect(notice()).toBeInTheDocument();
+    expect(notice()!.closest('[role="status"]')).not.toBeNull();
+    expect(screen.getByText("Loading messages…")).toBeInTheDocument();
+  });
+
+  it("stays with the initial-failure hint, above the disabled prefilled form", async () => {
+    const { messages, text, send } = setup({ prefill });
+    messages.list[0].reject(new Error("offline"));
+    await settle();
+
+    expect(screen.getByText(LOAD_FAILED_HINT)).toBeInTheDocument();
+    expect(notice()).toBeInTheDocument();
+    expect(text()).toHaveValue("unsent draft");
+    expect(send()).toBeDisabled();
+  });
+
+  it("is absent without a prefill", async () => {
+    await openPolling();
+
+    expect(notice()).not.toBeInTheDocument();
+  });
+
+  it("is absent for a seeded room", () => {
+    setup({ seed: msg(7) });
+
+    expect(notice()).not.toBeInTheDocument();
+  });
+
+  it("is hidden by the room-gone hint", async () => {
+    const { messages } = setup({ prefill });
+    messages.list[0].reject(new ApiRequestError(404, "not_found", "Room not found"));
+    await settle();
+
+    expect(screen.getByText(ROOM_GONE_HINT)).toBeInTheDocument();
+    expect(notice()).not.toBeInTheDocument();
+  });
+
+  it("is dismissed by its own button and keeps the prefilled fields", async () => {
+    const { user, author, text } = await openPolling({ prefill });
+
+    await user.click(dismissNotice());
+
+    expect(notice()).not.toBeInTheDocument();
+    expect(author()).toHaveValue("ana");
+    expect(text()).toHaveValue("unsent draft");
+  });
+
+  it("goes away after a send that resolves", async () => {
+    const { messages, user, send } = await openPolling({ prefill });
+
+    await user.click(send());
+    expect(notice()).toBeInTheDocument(); // still unsent while the request is pending
+    messages.post[0].resolve(msg(3, prefill));
+    await settle();
+
+    expect(notice()).not.toBeInTheDocument();
+  });
+
+  it("stays after a send that is rejected", async () => {
+    const { messages, user, send, text } = await openPolling({ prefill });
+
+    await user.click(send());
+    messages.post[0].reject(new TypeError("Failed to fetch"));
+    await settle();
+
+    await waitFor(() => expect(screen.getByText(SUBMIT_FAILED_MESSAGE)).toBeInTheDocument());
+    expect(notice()).toBeInTheDocument();
+    expect(text()).toHaveValue("unsent draft");
+  });
+
+  it("renders above the fetch alert, and each Dismiss closes its own", async () => {
+    const { messages, tick, user } = await openPolling({ prefill });
+    tick();
+    messages.listAfter[1].reject(new Error("offline"));
+    await settle();
+
+    const fetchAlert = screen.getByText(NEWER_FAILED);
+    expect(notice()!.compareDocumentPosition(fetchAlert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await user.click(dismissNotice());
+    expect(notice()).not.toBeInTheDocument();
+    expect(fetchAlert).toBeInTheDocument();
+  });
+});
+
+describe("RoomPanel focus after a hand-off", () => {
+  it("focuses the message field of a seeded room at once", () => {
+    const { text } = setup({ seed: msg(7) });
+
+    expect(text()).toHaveFocus();
+  });
+
+  it("focuses the message field of a prefilled room when the form is first enabled", async () => {
+    const { messages, text } = setup({ prefill: { author: "ana", text: "unsent draft" } });
+    expect(text()).not.toHaveFocus();
+
+    messages.list[0].resolve(page([msg(1)]));
+    await settle();
+
+    expect(text()).toHaveFocus();
+  });
+
+  it("leaves focus alone for a room opened from its pin", async () => {
+    await openPolling();
+
+    expect(document.body).toHaveFocus();
   });
 });
