@@ -467,6 +467,10 @@ export function useRoomFeed(
 
 ## 8. Realtime adapter and activity tracking (chunk 11)
 
+Approved refinement, 2026-09-17: chunk 11 plan feedback F-001/F-002 requires actual Postgres
+readiness and excludes application-originated scrolling from user activity. See the
+[plan feedback](../plans/2026-09-17-chunk-11-realtime-idle-fallback-feedback.md).
+
 ```ts
 // src/lib/feed/realtime.ts
 export type RealtimeHandle = { unsubscribe(): void };
@@ -486,9 +490,22 @@ export const subscribeToRoom: SubscribeToRoom;
 - Channel name `room:<id>`, `postgres_changes` with `event: 'INSERT'`, `schema: 'public'`,
   `table: 'messages'`, `filter: 'chatroom_id=eq.<id>'`. Client defaults to
   `getBrowserClient()` (anon key).
-- Status mapping: `SUBSCRIBED` → `onSubscribed()`; `CHANNEL_ERROR`, `TIMED_OUT` →
-  `onFailed(status)`; `CLOSED` → `onFailed('CLOSED')` unless `unsubscribe()` was called. The
-  supabase-js status callback may also carry an error; include its message in the reason.
+- Confirmation means Postgres Changes delivery is ready, not just that the channel joined.
+  The verified local Realtime server (`v2.124.2`) does not implement the SDK's
+  `postgres_changes_options.wait`; use its existing `system` acknowledgement instead.
+  Record SDK `SUBSCRIBED` and a matching `system` payload with `extension: 'postgres_changes'`,
+  `status: 'ok'`, `channel: 'room:<id>'`. Call `onSubscribed()` exactly once after both, in
+  either order. This is when the existing store stops polling and performs confirmation
+  catch-up. Inserts may merge before confirmation but do not prove readiness or move the cursor.
+- Bound setup with a 20000 ms deadline starting at adapter creation. If both acknowledgements
+  have not arrived, fail with `POSTGRES_READY_TIMEOUT`. A matching Postgres `system` error
+  fails with `POSTGRES_CHANGES_ERROR` plus its message, before or after confirmation. Ignore
+  unrelated or malformed system payloads. Cancel the deadline on confirmation, failure,
+  unsubscribe, and synchronous setup exceptions; never let late readiness revive an attempt.
+- SDK `CHANNEL_ERROR`, `TIMED_OUT` → `onFailed(status)`; `CLOSED` → `onFailed('CLOSED')`
+  unless intentional. Include an accompanying SDK error message in the reason. All failures
+  use the same terminal cleanup below. Verify the Postgres readiness handshake against any
+  different target server version before deployment; unsupported readiness is not success.
 - Payload rows (`payload.new`) are mapped with the browser-safe `toMessage` from
   `@/lib/db/rows`. A row that fails the row schema is dropped and logged; it does not fail the
   channel.
@@ -504,14 +521,20 @@ export const subscribeToRoom: SubscribeToRoom;
 // src/lib/feed/activity.ts
 export function attachActivityTracking(
   el: HTMLElement,
-  handlers: { onActivity(): void },
+  handlers: { onActivity(): void; ignoreScroll?(target: EventTarget | null): boolean },
 ): () => void;   // detach
 ```
 
 Listens for `pointerdown`, `pointermove`, `keydown`, `wheel`, `scroll` (capture) and
-`touchstart` on `el`, all passive, calling `onActivity`. `RoomPanel` attaches it to its
-root with `feed.activity` and detaches on cleanup. Document visibility is owned exclusively by
-section 7's hook lifecycle, so it works before chunk 11 and before panel listeners attach.
+`touchstart` on `el`, all passive, calling `onActivity`. For `scroll`, call the optional
+`ignoreScroll(event.target)` first; if true, the target owns its own classification and the
+root does not report activity. `RoomPanel` excludes its list element through
+`MessageListHandle.ownsScrollTarget` and passes `feed.activity` as `MessageList.onUserScroll`.
+The list reports only reader scrolling after its existing `ownScrollTop` check; automatic
+following, initial positioning and anchor correction do not count. Other descendant scrolls,
+including the textarea, are still captured. `isTrusted` is not a programmatic-scroll filter.
+The panel attaches the listeners once per stable activity callback and detaches on cleanup.
+Document visibility is owned exclusively by section 7's hook lifecycle.
 
 ## 9. Testing
 
@@ -536,7 +559,11 @@ section 7's hook lifecycle, so it works before chunk 11 and before panel listene
   enters polling; `onFailed` after `onSubscribed` enters polling without re-subscribing.
 - `realtime.test.ts` (chunk 11): a fake channel object records `on`/`subscribe`; each status
   maps to the right handler; `payload.new` maps through `toMessage`; handlers are silent after
-  `unsubscribe()`; a malformed row is dropped.
+  `unsubscribe()`; a malformed row is dropped. Separately cover channel join without Postgres
+  readiness, readiness before join, irrelevant/malformed readiness, readiness error/deadline,
+  disposal while waiting, and duplicate/late acknowledgements. An adapter-plus-real-store
+  test inserts between history/join and readiness: no catch-up starts at the raw join, then
+  readiness starts catch-up from the unchanged bookmark and retrieves the missing row.
 - `useRoomFeed.test.tsx` (chunk 9, jsdom): the hook exposes store state, `loadOlder` reaches
   the store, unmount disposes, and a `roomId` change creates a new store.
 
@@ -561,6 +588,12 @@ Additional acceptance cases for the accepted review findings:
   and after disposal, sends reject with zero POST calls and drafts remain. Successful history
   or a seeded start enables sending; successful send merges exactly once. A hidden pending
   send merges without rejoining; a disposed pending send settles without state updates.
+
+- Activity regression (chunk 11): MessageList's initial/follow/anchor scrolls never report
+  activity; reader scrolling reports once. A browser scenario keeps an overflowing list at
+  the bottom and delivers incoming rows throughout the idle interval with no input: idle
+  still leaves realtime. A real reader-scroll gesture postpones idle, and later inactivity
+  still expires it.
 
 - Manual smoke (chunk 11, PRD §8): two browsers, a message appears without reload; after the
   idle timeout the websocket closes and a poll fires at once; sending reopens it.
