@@ -18,7 +18,7 @@ function isFieldIssue(value: unknown): value is FieldIssue {
 
 /**
  * True for chunk 4's `ApiValidationError`, recognised by name and shape
- * rather than by class so this module needs no import from `@/lib/api`.
+ * rather than by class, so this module needs no runtime import of `@/lib/api/client`.
  */
 export function isValidationError(error: unknown): error is Error & { fields: FieldIssue[] } {
   if (!(error instanceof Error) || error.name !== "ApiValidationError") return false;

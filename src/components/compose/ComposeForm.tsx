@@ -9,12 +9,17 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { fieldIssues } from "@/lib/api/errors";
 import { countChars } from "@/lib/schemas/common";
-import { postMessageInputSchema, type PostMessageInput } from "@/lib/schemas/message";
+import {
+  AUTHOR_MAX_CHARS,
+  TEXT_MAX_CHARS,
+  postMessageInputSchema,
+  type PostMessageInput,
+} from "@/lib/schemas/message";
 import { writeDisplayName } from "@/lib/storage/displayName";
 
 /** Limits from PRD 4, in code points after trimming; the counters use the raw value. */
-export const AUTHOR_MAX = 100;
-export const TEXT_MAX = 3000;
+export const AUTHOR_MAX = AUTHOR_MAX_CHARS;
+export const TEXT_MAX = TEXT_MAX_CHARS;
 
 export type ComposeFormProps = {
   /** Shown in the name field until the user edits it; a later value is adopted while untouched. */

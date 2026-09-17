@@ -75,7 +75,7 @@ Code imported by both route handlers and client components (PRD sections 4, 6.1,
 | Module                   | Provides                                                                                  |
 | ------------------------ | ------------------------------------------------------------------------------------------- |
 | `@/lib/schemas/common`   | `countChars` (Unicode code points, like Postgres `char_length`), `trimmedText`, `requiredOr` |
-| `@/lib/schemas/message`  | `authorSchema`, `messageTextSchema`, `postMessageInputSchema`                             |
+| `@/lib/schemas/message`  | `AUTHOR_MAX_CHARS`, `TEXT_MAX_CHARS`, `authorSchema`, `messageTextSchema`, `postMessageInputSchema` |
 | `@/lib/schemas/room`     | `latSchema`, `lngSchema`, `createRoomInputSchema`, `roundCoord` (6 decimals)              |
 | `@/lib/schemas/query`    | `bboxSchema` (`minLng,minLat,maxLng,maxLat`), `uuidSchema`, `messagesQuerySchema`         |
 | `@/lib/schemas/types`    | `Room` and `Message` API types                                                            |
