@@ -241,8 +241,9 @@ the whole request and shows the pill. Only one fetch runs at a time, so "Load ol
 a persistent hint and keeps the form disabled; a failed older or newer fetch shows a
 dismissible alert. A room that no longer exists (a 404 from any read) is reported through
 `onGone(room)`: the map page closes the panel and shows "The chatroom <name> no longer
-exists." above the greeting; a host without `onGone` keeps the in-panel hint. The message field is a fixed 64 px and scrolls
-inside itself, so Send and at least 96 px of messages stay visible at 1280 × 720.
+exists." above the greeting; a host without `onGone` keeps the in-panel hint. The message
+field is a fixed 64 px and scrolls inside itself, so Send and at least 96 px of messages
+stay visible at 1280 × 720.
 
 The panel root has `data-connection` (`connecting`, `polling`, `realtime`) for tests; nothing
 visible. The same element reports activity (`pointerdown`, `pointermove`, `keydown`, `wheel`,
@@ -341,10 +342,10 @@ playwright install chromium`.
   paused, with no new catch-up request, came over the websocket. `goIdle` fast-forwards the
   180 s idle timeout.
 - `tests/e2e/shared-room.spec.ts` covers `/room/<id>`, the address following the selection
-  (no page/RSC requests for either selection path and the same map control retained from
-  both entry routes; no absolute history-request counts under Strict Mode), the 404 page and the gone-room
-  notice. The API has no delete, so that last scenario answers one room's messages endpoint
-  with a 404 through `page.route`; it is the suite's only HTTP interception.
+  (no page/RSC requests for either selection path and the same map control retained from both
+  entry routes, no absolute message-history request counts under Strict Mode), the 404 page and
+  the gone-room notice. The API has no delete, so that last scenario answers one room's messages
+  endpoint with a 404 through `page.route`; it is the suite's only HTTP interception.
 - `src/app/e2e/**/page.dev.tsx` are fixture pages for these tests. `next.config.ts` lists the
   `dev.tsx` page extension only outside production, so `next build` does not contain them.
 

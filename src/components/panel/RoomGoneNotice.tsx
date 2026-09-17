@@ -12,7 +12,8 @@ export const roomGoneNoticeText = (room: Room) => `The chatroom ${room.name} no 
  * The page-level notice after an open room answered 404 and its panel was
  * closed (chunk 12). It sits in the panel slot above the greeting and goes
  * away with the next selection or its own dismiss button. `role="status"`:
- * nothing the visitor typed is lost, so it informs rather than alarms.
+ * the notice reports something that already happened and asks for no action,
+ * so it informs rather than alarms.
  */
 export function RoomGoneNotice({ room, onDismiss }: RoomGoneNoticeProps) {
   return (
