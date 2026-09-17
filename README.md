@@ -147,7 +147,9 @@ itself is loaded with `next/dynamic` and `ssr: false` because Leaflet touches `w
 | ----------------------------- | -------------------------------------------------------------------------------------------- |
 | `@/lib/map/viewport`          | `toQueryBoxes` (splits antimeridian-crossing viewports), `mergeBoxResults`, `PIN_LIMIT` (500) |
 | `@/lib/map/useRoomPins`       | 250 ms debounce, immediate viewport invalidation, request ownership, 30 s visible-tab ticks that skip pending work |
-| `@/lib/page/selection`        | `Selection` (`none` / `draft` / `room`) and `selectionReducer`; `@/lib/page/handoff` wraps it for `MapShell` |
+| `@/lib/page/selection`        | `Selection` (`none`, optionally with the `gone` room / `draft` / `room`) and `selectionReducer`; `@/lib/page/handoff` wraps it for `MapShell` |
+| `@/lib/page/selectionUrl`     | `pathForSelection` and `useSelectionUrl`: the address follows the open room with `history.replaceState` |
+| `@/lib/page/sharedRoom`       | `loadSharedRoom(id)`, server-only: the room behind `/room/<id>`, or null                     |
 | `@/components/map/MapShell`   | The page: selection, pins, status pill and the floating panel slot                          |
 | `@/components/map/MapView`    | `MapContainer` with OSM tiles, `RoomPins` and `DraftPin`; props in, events out               |
 | `@/components/map/pinIcon`    | `divIcon` pins (`room`, `selected`, `draft`); no icon assets, no `L.Icon.Default` patch       |
@@ -235,9 +237,11 @@ that land between displayed rows count too. A reader within 32 px of the bottom 
 incoming messages; otherwise the first visible row keeps its place and "New messages" shows.
 An own send always ends at the bottom. "Load more messages" keeps the reader's position for
 the whole request and shows the pill. Only one fetch runs at a time, so "Load older" and
-"Load more messages" are disabled while any fetch is in flight. A failed initial load and a
-room that no longer exists show a persistent hint and keep the form disabled; a failed older
-or newer fetch shows a dismissible alert. The message field is a fixed 64 px and scrolls
+"Load more messages" are disabled while any fetch is in flight. A failed initial load shows
+a persistent hint and keeps the form disabled; a failed older or newer fetch shows a
+dismissible alert. A room that no longer exists (a 404 from any read) is reported through
+`onGone(room)`: the map page closes the panel and shows "The chatroom <name> no longer
+exists." above the greeting; a host without `onGone` keeps the in-panel hint. The message field is a fixed 64 px and scrolls
 inside itself, so Send and at least 96 px of messages stay visible at 1280 × 720.
 
 The panel root has `data-connection` (`connecting`, `polling`, `realtime`) for tests; nothing
@@ -284,6 +288,26 @@ Design: `docs/superpowers/specs/2026-09-17-new-room-flow-design.md`.
 random spots outside the fixture region; `clickEmptySpot` retries around existing rooms, and
 on a very crowded local map it fails with a hint to reset disposable data.
 
+## Shareable room URL
+
+Every room has an address, `/room/<id>` (PRD 3). `src/app/room/[id]/page.tsx` is a server
+component: it loads the room with `loadSharedRoom` (service-role client, never the browser)
+and renders the same `MapShell` as `/`, started with the room selected, the map centred on it
+and `ROOM_ZOOM` (16). The route is rendered per request. An id that is not a UUID, or that no
+room has, answers 404 with `src/app/not-found.tsx` ("Open the map" leads to `/`); the same
+page serves every unmatched URL.
+
+While the app is open the address follows the selection: `useSelectionUrl` in `MapShell`
+calls `history.replaceState` with `/room/<id>` for an open room (also right after creating
+one, or after a 409 hand-off) and `/` otherwise. It adds no history entries and never
+navigates: the panel and its feed stay mounted. A reload or a pasted link lands on the room
+page.
+
+A room that disappears while open closes its panel: `RoomPanel` calls `onGone(room)` on the
+feed's terminal 404, `MapShell` dispatches `roomGone`, the selection becomes
+`{ kind: "none", gone: room }`, the pins are refreshed and `RoomGoneNotice` shows above the
+greeting until it is dismissed or something else is selected.
+
 ## Tests
 
 Unit tests live next to the code as `*.test.ts` and run in a Node environment. A component
@@ -316,6 +340,11 @@ playwright install chromium`.
   `data-connection="realtime"` and then pauses the clock. A row that appears while the clock is
   paused, with no new catch-up request, came over the websocket. `goIdle` fast-forwards the
   180 s idle timeout.
+- `tests/e2e/shared-room.spec.ts` covers `/room/<id>`, the address following the selection
+  (no page/RSC requests for either selection path and the same map control retained from
+  both entry routes; no absolute history-request counts under Strict Mode), the 404 page and the gone-room
+  notice. The API has no delete, so that last scenario answers one room's messages endpoint
+  with a 404 through `page.route`; it is the suite's only HTTP interception.
 - `src/app/e2e/**/page.dev.tsx` are fixture pages for these tests. `next.config.ts` lists the
   `dev.tsx` page extension only outside production, so `next build` does not contain them.
 
