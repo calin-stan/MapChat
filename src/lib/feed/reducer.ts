@@ -279,7 +279,36 @@ export function feedReducer(state: FeedState, action: FeedAction): Result {
       return ignore(state);
     }
 
-    default:
-      return ignore(state);
+    case "fetchFailed": {
+      if (state.inflight !== action.op) return ignore(state);
+      const failed: FeedState = {
+        ...state,
+        inflight: null,
+        error: { op: action.op, message: action.message, notFound: action.notFound },
+      };
+      if (action.notFound) {
+        // The room is gone: no retries, no transports; only `closed` is accepted from here.
+        fx.push({ type: "unsubscribe" }, { type: "stopIdleTimer" }, { type: "stopPolling" });
+        return [{ ...failed, newerWanted: false, channel: "none", polling: false }, fx];
+      }
+      if (action.op === "initial") return [{ ...failed, newerWanted: false }, fx];
+      if (action.op === "older") return [runOwedCatchUp(failed, fx), fx];
+      // newer: keep the bookmark; the next poll tick (or the backlog button) retries.
+      const stalled: FeedState = { ...failed, newerWanted: false };
+      if (stalled.channel !== "subscribed") return [stalled, fx];
+      const dropped = dropChannel(stalled, fx);
+      fx.push({ type: "startPolling" });
+      return [{ ...dropped, polling: true }, fx];
+    }
+
+    case "errorDismissed": {
+      if (state.error === null) return ignore(state);
+      return [{ ...state, error: null }, fx];
+    }
+
+    default: {
+      const unreachable: never = action;
+      return unreachable;
+    }
   }
 }

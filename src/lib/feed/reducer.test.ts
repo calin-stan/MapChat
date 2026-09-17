@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { FeedAction, FeedEffect, FeedError, FeedState } from "@/lib/feed/types";
+import type { FeedAction, FeedEffect, FeedError, FeedState, FetchOp } from "@/lib/feed/types";
 import type { CatchUpPage, Message, MessagePage } from "@/lib/schemas/types";
 
 import {
@@ -783,6 +783,160 @@ describe("feedReducer receiving and sending", () => {
       name: "sent while opening is ignored",
       before: state({ inflight: "initial" }),
       action: { type: "sent" },
+      after: "ignored",
+    },
+  ])("$name", (row) => check(row));
+});
+
+const failure = (op: FetchOp, message = "boom"): FeedError => ({ op, message, notFound: false });
+const failed = (op: FetchOp, message = "boom"): FeedAction => ({
+  type: "fetchFailed",
+  op,
+  message,
+  notFound: false,
+});
+
+describe("feedReducer failures and dismissal", () => {
+  it.each<Row>([
+    {
+      name: "initial failure keeps the room opening with no transport",
+      before: state({ inflight: "initial" }),
+      action: failed("initial"),
+      after: { inflight: null, error: failure("initial") },
+    },
+    {
+      name: "initial failure clears an owed catch-up",
+      before: state({ inflight: "initial", newerWanted: true }),
+      action: failed("initial"),
+      after: { inflight: null, newerWanted: false, error: failure("initial") },
+    },
+    {
+      name: "older failure with nothing owed only records the error",
+      before: live({ inflight: "older" }),
+      action: failed("older"),
+      after: { inflight: null, error: failure("older") },
+    },
+    {
+      name: "older failure releases an owed catch-up even in realtime",
+      before: live({ inflight: "older", newerWanted: true }),
+      action: failed("older"),
+      after: { inflight: "newer", newerWanted: false, error: failure("older") },
+      effects: [fetchNewer(m2.id)],
+    },
+    {
+      name: "older failure with an owed catch-up but a backlog only clears the flag",
+      before: live({ inflight: "older", newerWanted: true, backlog: true }),
+      action: failed("older"),
+      after: { inflight: null, newerWanted: false, error: failure("older") },
+    },
+    {
+      name: "newer failure in realtime drops the channel and polls without an immediate retry",
+      before: live({ inflight: "newer" }),
+      action: failed("newer"),
+      after: { inflight: null, channel: "none", polling: true, error: failure("newer") },
+      effects: [unsubscribe, stopIdleTimer, startPolling],
+    },
+    {
+      name: "newer failure while polling waits for the next tick",
+      before: pollingRoom({ inflight: "newer" }),
+      action: failed("newer"),
+      after: { inflight: null, error: failure("newer") },
+    },
+    {
+      name: "newer failure during a re-subscribe keeps the interval and the attempt",
+      before: pollingRoom({ inflight: "newer", channel: "subscribing" }),
+      action: failed("newer"),
+      after: { inflight: null, error: failure("newer") },
+    },
+    {
+      name: "newer failure during the initial join leaves the attempt to decide",
+      before: live({ inflight: "newer", channel: "subscribing" }),
+      action: failed("newer"),
+      after: { inflight: null, error: failure("newer") },
+    },
+    {
+      name: "newer failure keeps a backlog and its cursor",
+      before: pollingRoom({ inflight: "newer", backlog: true }),
+      action: failed("newer"),
+      after: { inflight: null, error: failure("newer") },
+    },
+    {
+      name: "newer failure clears an owed catch-up",
+      before: pollingRoom({ inflight: "newer", newerWanted: true }),
+      action: failed("newer"),
+      after: { inflight: null, newerWanted: false, error: failure("newer") },
+    },
+    {
+      name: "a failure for a different operation is ignored",
+      before: live({ inflight: "older" }),
+      action: failed("newer"),
+      after: "ignored",
+    },
+    {
+      name: "a failure with nothing in flight is ignored",
+      before: live(),
+      action: failed("newer"),
+      after: "ignored",
+    },
+    {
+      name: "a 404 in realtime is terminal: every transport stops",
+      before: live({ inflight: "newer" }),
+      action: { type: "fetchFailed", op: "newer", message: "gone", notFound: true },
+      after: {
+        inflight: null,
+        channel: "none",
+        polling: false,
+        error: { op: "newer", message: "gone", notFound: true },
+      },
+      effects: [unsubscribe, stopIdleTimer, stopPolling],
+    },
+    {
+      name: "a 404 while polling is terminal too",
+      before: pollingRoom({ inflight: "newer", newerWanted: true }),
+      action: { type: "fetchFailed", op: "newer", message: "gone", notFound: true },
+      after: {
+        inflight: null,
+        newerWanted: false,
+        polling: false,
+        error: { op: "newer", message: "gone", notFound: true },
+      },
+      effects: [unsubscribe, stopIdleTimer, stopPolling],
+    },
+    {
+      name: "a 404 during opening is terminal",
+      before: state({ inflight: "initial" }),
+      action: { type: "fetchFailed", op: "initial", message: "gone", notFound: true },
+      after: { inflight: null, error: { op: "initial", message: "gone", notFound: true } },
+      effects: [unsubscribe, stopIdleTimer, stopPolling],
+    },
+    {
+      name: "errorDismissed clears an ordinary error",
+      before: live({ error: failure("older") }),
+      action: { type: "errorDismissed" },
+      after: { error: null },
+    },
+    {
+      name: "errorDismissed with no error is ignored",
+      before: live(),
+      action: { type: "errorDismissed" },
+      after: "ignored",
+    },
+    {
+      name: "errorDismissed cannot clear a room-gone error",
+      before: live({ channel: "none", error: notFoundError }),
+      action: { type: "errorDismissed" },
+      after: "ignored",
+    },
+    {
+      name: "sent after a room-gone error is ignored",
+      before: live({ channel: "none", error: notFoundError }),
+      action: { type: "sent" },
+      after: "ignored",
+    },
+    {
+      name: "newerRequested after a room-gone error is ignored",
+      before: live({ channel: "none", error: notFoundError }),
+      action: { type: "newerRequested" },
       after: "ignored",
     },
   ])("$name", (row) => check(row));
