@@ -167,7 +167,33 @@ The two Fiji seed rooms are visited separately at opposite edges of the single r
 ## Tests
 
 Unit tests live next to the code as `*.test.ts` and run in a Node environment. A component
-test can opt into jsdom with `// @vitest-environment jsdom` as its first line.
+test opts into jsdom with `// @vitest-environment jsdom` as its first line and uses Testing
+Library (`@testing-library/react`, `user-event`); `vitest.setup.ts` registers the jest-dom
+matchers for every file and, when a DOM exists, cleans it between tests. Target one file with
+`pnpm test <path>` (no `--`).
+
+## Compose form and display name
+
+The "New chatroom" popup and the room panel render the same form (PRD 6.7), so the 409
+hand-off is a prop change, not a second implementation.
+
+| Module                          | Provides                                                                                     |
+| ------------------------------- | -------------------------------------------------------------------------------------------- |
+| `@/lib/storage/displayName`     | `DISPLAY_NAME_KEY`, `readDisplayName`, `writeDisplayName`, `subscribeDisplayName`; every access is wrapped, so blocked or missing storage means "not remembered" |
+| `@/lib/storage/useDisplayName`  | `useDisplayName(): [name, setName]`; `""` on the server and while hydrating, the stored name after mount, updated across tabs |
+| `@/components/compose/ComposeForm` | `ComposeForm({ initialAuthor, initialText?, submitLabel?, disabled?, onSubmit })`      |
+| `@/components/compose/fieldErrors` | `submitErrors`, `toComposeErrors`, `isValidationError`, `SUBMIT_FAILED_MESSAGE` |
+
+`ComposeForm` validates with `postMessageInputSchema`, shows "<Field> <message>" under each
+field, and shows remaining characters counted in code points. On submit it disables both fields
+and the button, preventing edits that could be erased by the pending response,
+awaits `onSubmit` with the trimmed values, and on success clears the message, keeps the name
+and stores it. If `onSubmit` rejects with an error named `ApiValidationError` carrying
+`fields: { path, message }[]`, the messages appear under their fields (other paths become one
+form-level line); an `ApiRequestError` with code `unavailable` shows the server's message;
+any other rejection shows a "may still have gone through" notice. Drafts survive every
+rejection. Pass `initialAuthor={name}` from `useDisplayName()`; a value that arrives after
+mount is adopted while the field is untouched.
 
 ## Database
 
