@@ -154,13 +154,14 @@ describe("MapShell", () => {
     expect(pins.setViewport).toHaveBeenCalledWith({ west: 1, south: 2, east: 3, north: 4 });
   });
 
-  it("shows the New chatroom placeholder with the coordinates after an empty click", () => {
+  it("shows the New chatroom form with the coordinates after an empty click", () => {
     renderShell();
 
     fireEvent.click(screen.getByTestId("empty"));
 
     expect(screen.getByText("New chatroom")).toBeTruthy();
-    expect(screen.getByText("46.500000, 23.500000")).toBeTruthy();
+    expect(screen.getByText("Your first message creates a chatroom at 46.500000, 23.500000.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
     expect(screen.getByTestId("draft").textContent).toBe("46.5,23.5");
     expect(greeting()).toBeNull();
   });
