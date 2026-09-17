@@ -27,6 +27,12 @@ export type RoomPanelProps = {
   /** Unsent draft from a 409 hand-off (chunk 10). */
   prefill?: Prefill;
   onClose(): void;
+  /**
+   * The room answered 404 (chunk 12). `MapShell` closes the panel and shows a
+   * page-level notice. Reports once per terminal feed, even if props change.
+   * A host that leaves this out keeps the hint; supplying it later reports then.
+   */
+  onGone?(room: Room): void;
   /** Tests inject a fake api, subscribe, config and timers. */
   feedDeps?: Partial<FeedDeps>;
 };
@@ -47,7 +53,7 @@ function fetchAlertText(error: FeedError, backlog: boolean): string {
  * message list and the footer. Keyed by room id in `MapShell`, so another room
  * remounts it and resets the feed, the drafts and every scroll request.
  */
-export function RoomPanel({ room, seed, prefill, onClose, feedDeps }: RoomPanelProps) {
+export function RoomPanel({ room, seed, prefill, onClose, onGone, feedDeps }: RoomPanelProps) {
   const feed = useRoomFeed(room.id, { seed, deps: feedDeps });
   const [name] = useDisplayName();
   const listRef = useRef<MessageListHandle>(null);
@@ -102,6 +108,16 @@ export function RoomPanel({ room, seed, prefill, onClose, feedDeps }: RoomPanelP
   }
 
   const gone = error?.notFound === true;
+  const goneReportedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!gone) {
+      goneReportedFor.current = null; // a new, non-terminal feed can report later
+      return;
+    }
+    if (onGone === undefined || goneReportedFor.current === room.id) return;
+    goneReportedFor.current = room.id; // guard before invoking a host callback
+    onGone(room);
+  }, [gone, onGone, room]);
   const failedToOpen = !gone && error?.op === "initial";
   const fetchAlert = feed.ready && error !== null && error.op !== "initial" ? error : null;
   // Derived from `prefill`, which only `movedToExisting` sets. Not with the room-gone hint.

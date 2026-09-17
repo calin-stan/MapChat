@@ -224,6 +224,8 @@ Other rules
   positioning never restarts idle. The root still captures textarea/other descendant scrolling.
 - Room gone: chunk 9 stops at the persistent hint. Chunk 12 observes the same
   `error.notFound` to close the panel and show a page-level notice.
+  Delivered in chunk 12 as the optional `RoomPanelProps.onGone(room)`: `MapShell` answers it
+  with the `roomGone` action; a host without `onGone` keeps the hint.
 
 ### 4.1 Bounded desktop composer
 
@@ -441,7 +443,7 @@ Setup
 | Server | `webServer: { command: "pnpm dev", url: baseURL, reuseExistingServer: true }`. `baseURL = process.env.E2E_BASE_URL ?? "https://map-chat.map-chat.test"` (the Supbuddy mapping), `ignoreHTTPSErrors: true`. Next 16 allows one dev server per project directory, so an already running one is reused. The plan's first e2e task verifies this start-up path with Supbuddy before any scenario is written. Requires the local Supabase stack. |
 | Poll timing | `page.clock.install()` before navigation, then `page.clock.fastForward(30_000)` to fire a poll tick. Network stays real. No `NEXT_PUBLIC_POLL_INTERVAL_MS` override, because it is inlined at server start and a reused server may not have it. |
 | Data | Through the real API with the `request` fixture: `createRoom()` posts `/api/rooms` with 6-decimal coordinates randomized within lat `[40, 50]`, lng `[0, 10]`, safely inside the fixed opening viewport, and returns `{ room, message }`. A coordinate-conflict 409 chooses fresh coordinates with a bounded setup retry; a failed/uncertain write is not retried automatically. `postMessages(roomId, n)` posts sequentially so `createdAt` order is the post order. No DB reset, no service-role key, no shared rooms; spec files may run in parallel. |
-| Opening a room | `openRoom(page, room)`: go to `/`, wait for the marker with `title = room.name`, focus it and press Enter. Keyboard activation is handled by `RoomPins` which responds to Enter and Space on a focused marker (Leaflet 1.9.4 does not turn Enter into click on a plain marker), and avoids clicks landing on overlapping pins at world zoom. Chunk 12 may switch the helper to `/room/<id>`. |
+| Opening a room | `openRoom(page, room)`: go to `/`, wait for the marker with `title = room.name`, focus it and press Enter. Keyboard activation is handled by `RoomPins` which responds to Enter and Space on a focused marker (Leaflet 1.9.4 does not turn Enter into click on a plain marker), and avoids clicks landing on overlapping pins at world zoom. Chunk 12 kept the helper on the pin path (the clock-sensitive scenarios are tuned to the world-view load) and covers `/room/<id>` in `tests/e2e/shared-room.spec.ts`. |
 | Selectors | Roles and visible text only: `getByRole("log")`, button names, form labels. No test ids. |
 | Caveats (README) | Rooms accumulate in the local DB until `pnpm db:reset`. `test:api` and `test:db` truncate tables: never run them while `test:e2e` runs. |
 

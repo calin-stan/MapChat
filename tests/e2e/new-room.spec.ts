@@ -91,7 +91,9 @@ test("1. create a room and land in it, seeded", async ({ page }) => {
   expect(new Set(requests.gets(room.id))).toEqual(new Set([message.id]));
   await expect(log.getByText(text, { exact: true })).toHaveCount(1);
 
-  await page.reload();
+  // A fresh load of the map, not `page.reload()`: the address is the new room's now
+  // (chunk 12), and a reload would open it again instead of the world view.
+  await page.goto("/");
   await clickEmptySpot(page);
   await expect(page.getByLabel("Display name")).toHaveValue("ann");
   await expect(page.getByLabel("Message")).toBeFocused();

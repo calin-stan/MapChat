@@ -689,6 +689,15 @@ Depends on: chunks 8, 9.
 
 **Spec needed: no** (PRD 3 last paragraph, 6.5 GET room by id).
 
+> **Delivered (2026-09-17), see `docs/superpowers/plans/2026-09-17-chunk-12-shareable-room-url.md`.**
+> Where this section and that plan differ, the plan wins. The shell was already extracted in
+> chunk 6 and the pin-fetch alert was dropped there (map-shell design §1), so neither is part
+> of this chunk. Paths are under `src/`. Delivered: `src/lib/page/sharedRoom.ts`
+> (`loadSharedRoom`), `src/app/room/[id]/page.tsx`, `src/app/not-found.tsx`,
+> `src/lib/page/selectionUrl.ts` (`pathForSelection`, `useSelectionUrl`), the `roomGone`
+> action with `{ kind: "none"; gone?: Room }`, `RoomPanelProps.onGone`, `RoomGoneNotice`, and
+> `tests/e2e/shared-room.spec.ts`.
+
 Goal: `/room/<id>` opens the map centred on the room with the panel open; graceful errors.
 
 Scope

@@ -264,6 +264,14 @@ room panels use `<room.id>:<revision>`. The revision changes only for those thre
 ordinary repeat click on the selected pin preserves the mounted panel while an outcome targeting
 that same room mounts a fresh one.
 
+Chunk 12 extends this contract twice. The `none` selection may carry `gone?: Room`, set only by
+the new action `{ type: "roomGone"; roomId }` when it names the open room (any other state is
+returned unchanged); `handoffReducer` passes it through without a new revision, and every other
+action clears it by building a fresh selection. `MapShell` renders `RoomGoneNotice` above the
+greeting while `gone` is set. `MapShell` also calls `useSelectionUrl(selection)`
+(`src/lib/page/selectionUrl.ts`), which keeps the address on `/room/<id>` for an open room and
+on `/` otherwise with `history.replaceState`.
+
 `MapShell` props:
 
 ```ts

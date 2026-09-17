@@ -18,6 +18,7 @@ export type HandoffAction =
   | { type: "clickEmpty"; lat: number; lng: number }
   | { type: "clickPin"; room: Room }
   | { type: "close" }
+  | { type: "roomGone"; roomId: string }
   | { type: "created"; room: Room; message: Message }
   | { type: "conflict"; room: Room; prefill: Prefill }
   | { type: "failed"; input: CreateRoomInput; error: unknown };
@@ -45,6 +46,11 @@ export function handoffReducer(state: Handoff, action: HandoffAction): Handoff {
     }
     case "close":
       return { ...state, selection: selectionReducer(state.selection, action), recovery: null };
+    case "roomGone": {
+      const selection = selectionReducer(state.selection, action);
+      // A report about a room that is not open: same object, so nothing re-renders.
+      return selection === state.selection ? state : { ...state, selection, recovery: null };
+    }
     case "created":
       return {
         selection: selectionReducer(state.selection, {

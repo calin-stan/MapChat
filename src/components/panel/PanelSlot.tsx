@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
  */
 export function PanelSlot({ children }: { children: ReactNode }) {
   return (
-    <div className="absolute top-4 right-4 z-10 flex max-h-[calc(100dvh-2rem)] w-96 flex-col">
+    <div className="absolute top-4 right-4 z-10 flex max-h-[calc(100dvh-2rem)] w-96 flex-col gap-2">
       {children}
     </div>
   );
