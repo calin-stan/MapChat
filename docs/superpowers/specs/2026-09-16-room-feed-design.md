@@ -75,10 +75,14 @@ Consumed, unchanged: `Message`, `MessagePage`, `CatchUpPage` from `@/lib/schemas
 `@/lib/api/client` (chunk 5); `compareCreatedAtId` from `@/lib/time/ordering` and `toMessage`
 from `@/lib/db/rows` (chunk 4, browser-safe); `getClientConfig()` from `@/lib/config/client`.
 
-Dependency status at writing time: chunk 4's ordering, row and client modules exist on the
-`chunk-04-rooms-api` branch with the names above. Chunk 5's `MessagesApi`, `MessagePage` and
-`CatchUpPage` are specified in its approved plan but not yet on its branch; the chunk 8 plan
-must verify the real exports before Task 1 and read any drift from `src/lib/api/client.ts`.
+Dependency status (updated 2026-09-17): chunks 4 and 5 are merged; `MessagesApi`,
+`MessagePage`, `CatchUpPage`, `ApiRequestError` and `ApiValidationError` exist with the names
+above in `src/lib/api/client.ts` and `src/lib/schemas/types.ts`. Plans still verify the real
+exports before their first task and read any drift from the source files.
+
+Chunk 9's panel, its error surfaces, scroll semantics, seed path and tests are specified in
+[2026-09-17-room-panel-design.md](2026-09-17-room-panel-design.md). Where section 7 below
+describes panel wiring (`ComposeForm`, the loading-failed hint), that spec is the owner.
 
 ## 3. State
 
@@ -323,7 +327,7 @@ export type FeedStore = {
   subscribe(listener: () => void): () => void;   // useSyncExternalStore contract
   dispatch(action: FeedAction): void;
   loadOlder(): void;                              // dispatch olderRequested
-  loadNewer(): void;                              // dispatch newerRequested
+  loadNewer(): Promise<void>;                     // manual-request completion; see below
   send(input: PostMessageInput): Promise<Message>;
   activity(): void;                               // restart the idle timer if running
   setHidden(hidden: boolean): void;               // dispatch visibilityChanged
@@ -354,6 +358,14 @@ Behaviour
   `olderLoaded`, `newerLoaded` respectively, or rejects to `fetchFailed` with
   `notFound = error instanceof ApiRequestError && error.status === 404` and
   `message = error.message` (or `String(error)`).
+- Manual `loadNewer()` dispatches `newerRequested` and returns a completion promise for the
+  fetch that invocation starts. Resolve after its response or failure is reduced and published;
+  read failures remain in state and do not reject this promise. If the request is ignored
+  (including before start, after disposal, or while another fetch is running), resolve
+  immediately without attaching to another request. Disposal resolves pending completions
+  without publishing stale data. Unrelated messages, polling and later requests cannot settle
+  this completion. This store-only bookkeeping supports the room-panel design §5.2 manual
+  hold; it does not change reducer transitions or automatic fetch scheduling.
 - Each `subscribe` owns a unique attempt token and returned handle. Handlers dispatch
   `subscribed`, `channelFailed(reason)`, `received(message)` only for the current live attempt.
   The first failure immediately marks that attempt terminal and queues `channelFailed`;
@@ -400,7 +412,7 @@ export type RoomFeed = {
   connection: Connection;
   error: FeedError | null;
   loadOlder(): void;
-  loadNewer(): void;
+  loadNewer(): Promise<void>;
   send(input: PostMessageInput): Promise<Message>;
   activity(): void;
   dismissError(): void;
@@ -434,6 +446,8 @@ export function useRoomFeed(
   the previous committed store, and starts the new one after commit. Old-room callbacks never
   target the new bridge. In practice `RoomPanel key={room.id}` also enforces a remount.
 - `seed` and `deps` are captured for the room identity; later changes do not restart it.
+- `loadNewer()` delegates the store's completion promise; with no attached live store it
+  resolves immediately. A completion from an old room never targets a replacement bridge.
 - `ready` is true only for the attached, started store with `status === 'open'` and no terminal
   room-gone error. Chunk 9 passes `disabled={!feed.ready}` to ComposeForm, preserving draft
   fields during loading/failure. Dismissing an initial-load error keeps `ready = false` and
@@ -512,6 +526,10 @@ section 7's hook lifecycle, so it works before chunk 11 and before panel listene
   after `dispose()` leaves state untouched and does not notify; `send` appends the posted
   message and the next poll does not duplicate it; `loadOlder` uses the page's first id, not the
   displayed oldest.
+- Manual-newer completion: response and failure are published before its promise resolves;
+  ignored calls resolve without joining another fetch; unrelated received messages do not
+  settle it; disposal settles it without stale updates. Hook delegation preserves the promise,
+  including immediate completion without a live store and old-room completion after replacement.
 - `store.test.ts` additions (chunk 11): fake adapter confirms → `stopPolling`, idle timer runs,
   idle fires → `unsubscribe` and immediate `listAfter`; `activity()` postpones idle; `send` while
   polling calls the adapter again and stops polling on confirmation; `setHidden(true)` while live

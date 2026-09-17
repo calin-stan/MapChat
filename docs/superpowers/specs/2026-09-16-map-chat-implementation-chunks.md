@@ -39,6 +39,10 @@ Copy these into the "Global Constraints" header of every plan.
 - Tests: Vitest. Unit tests colocated as `*.test.ts(x)` next to the source. Integration tests in
   `tests/integration/**` run with `vitest.integration.config.ts` against the local Supabase
   stack (`supabase start`). Use TDD: failing test first.
+- End-to-end: Playwright (`@playwright/test`, Chromium) in `tests/e2e/**`, against the real dev
+  server and the local Supabase stack, run with `pnpm test:e2e`. Introduced in chunk 9 and used
+  only where layout, scrolling or the full HTTP path must be proven; everything else stays in
+  Vitest. See `2026-09-17-room-panel-design.md` §8 for the harness rules.
 - Commits: conventional commits, one commit per task, via the project's `commit` skill
   (GitButler). Exact library versions are resolved in chunk 1 and recorded in `package.json`;
   later plans read them from there.
@@ -65,8 +69,10 @@ components/
   room/MessageList.tsx                chunk 9
   room/MessageItem.tsx                chunk 9
   room/LoadOlderButton.tsx            chunk 9
+  room/BacklogNotice.tsx              chunk 9
+  room/listScroll.ts                  chunk 9  (pure scroll decisions)
   room/NewRoomPopup.tsx               chunk 10
-  room/RoomTitle.tsx                  chunk 10
+  room/MovedNotice.tsx                chunk 10 (409 notice in the room panel footer)
 lib/
   config/server.ts                    chunk 1
   config/client.ts                    chunk 1
@@ -87,10 +93,11 @@ lib/
   time/format.ts                      chunk 9
   feed/types.ts                       chunk 8
   feed/reducer.ts                     chunk 8
+  feed/store.ts                       chunk 9  (effect interpreter; room-feed design §6)
   feed/useRoomFeed.ts                 chunk 9  (polling only) → chunk 11 adds realtime
   feed/realtime.ts                    chunk 11
   feed/activity.ts                    chunk 11
-  page/selection.ts                   chunk 6  (map page selection state)
+  page/selection.ts                   chunk 6  (map page selection state); chunk 9 adds `seed`
 supabase/
   config.toml                         chunk 1
   migrations/20260916000001_schema.sql        chunk 2
@@ -104,9 +111,12 @@ tests/
   integration/db/*.test.ts            chunk 2
   integration/api/rooms.test.ts       chunk 4
   integration/api/messages.test.ts    chunk 5
+  e2e/helpers.ts                      chunk 9  (Playwright)
+  e2e/room-panel.spec.ts              chunk 9
 .env.example                          chunk 1
 vitest.config.ts                      chunk 1
 vitest.integration.config.ts          chunk 2
+playwright.config.ts                  chunk 9
 ```
 
 ## 0.2 Shared DTOs (defined in chunk 3, used everywhere)
@@ -556,48 +566,34 @@ Depends on: chunk 3. Parallel with chunks 6 and 7.
 
 ## Chunk 9 — Room panel (polling mode)
 
-**Spec needed: YES** — folded into the chunk 6 spec (layout of the panel, scroll behaviour) and
-the chunk 8 spec (hook contract). No separate spec of its own.
+**Spec needed: YES** — three specs together: `2026-09-17-room-panel-design.md` (components,
+states and errors, scroll semantics, time format, seed path, tests including Playwright),
+`2026-09-16-room-feed-design.md` §6, §7, §9 (store and hook contract) and
+`2026-09-16-map-shell-design.md` §8 (panel frame and scroll rules). Where this section and
+those specs differ, the specs win.
 
 Goal: open a room from a pin and use it end to end over HTTP polling: history, Load older,
-compose, local-time rendering. Realtime is added in chunk 11 without touching the panel.
+backlog, compose, local-time rendering. Realtime is added in chunk 11 without touching the panel.
 
-PRD sections: 3 Flow B, 4 (Message display, History), 6.4 (`polling` state only), 6.6.
+PRD sections: 3 Flow B, 4 (Message display, History, Compose behavior), 6.4 (`polling` state
+only), 6.6.
 
 Scope
-- `lib/time/format.ts`, `lib/feed/useRoomFeed.ts` (runs effects: fetch*, startPolling/stopPolling,
-  idle timer; `subscribe` is a no-op that dispatches `subscribeFailed('not implemented')` until
-  chunk 11), `components/room/*` except NewRoomPopup/RoomTitle.
-- Wire into `app/page.tsx`: selection `room` → render `RoomPanel`.
+- `lib/feed/store.ts` and `lib/feed/useRoomFeed.ts` (the default `subscribe` is a stub that
+  fails on the next macrotask, so every room polls until chunk 11), `lib/time/format.ts`,
+  `components/room/*` except NewRoomPopup/RoomTitle.
+- `lib/page/selection.ts`: the room selection gains `seed?: Message` and `roomCreated` carries
+  the first `message`.
+- `MapShell`: selection `room` → `<RoomPanel key={room.id} room seed prefill onClose />`.
+- All in-panel error surfaces (initial failure hint, room-gone hint, dismissible older/newer
+  alert).
+- Playwright harness (`playwright.config.ts`, `tests/e2e/`) and the room-panel scenarios.
 
-Interfaces produced
-```ts
-// lib/time/format.ts
-export function formatMessageTime(iso: string, opts?: { now?: Date; timeZone?: string; locale?: string }): string;
-  // same day → "17:03"; otherwise → "16 Sep 17:03"; uses Intl.DateTimeFormat with timeZone
+Interfaces produced: see the room-panel design §3 (`RoomPanelProps`, `Selection`), §5
+(`MessageListProps`, `MessageListHandle`, `listScroll`), §6 (`formatMessageTime`), and the
+room-feed design §6–7 (`FeedStore`, `FeedDeps`, `RoomFeed`, `useRoomFeed`).
 
-// lib/feed/useRoomFeed.ts
-export type RoomFeed = {
-  messages: Message[]; hasMore: boolean; loading: FeedState['loading'];
-  connection: Connection; error?: string;
-  loadOlder(): void;
-  send(input: PostMessageInput): Promise<void>;   // posts via api.messages.post, dispatches 'received' then 'sent'
-  activity(): void;                               // resets idle timer (chunk 11 wires DOM events to this)
-};
-export function useRoomFeed(roomId: string, deps?: { api?: typeof api; config?: typeof clientConfig }): RoomFeed;
-
-// components/room/RoomPanel.tsx
-export type RoomPanelProps = { room: Room; prefill?: Prefill; onClose(): void; titleSlot?: ReactNode };
-```
-
-Acceptance
-- Unit: `formatMessageTime('2026-09-16T15:00:00Z', { timeZone: 'Europe/Bucharest' })` → `"18:00"`
-  (UTC+3 in September); different-day case.
-- Hook test (fake timers, mocked `api`): initial load, poll every `pollIntervalMs`, immediate poll
-  on entering polling, `loadOlder` uses the oldest id, `send` appends without duplicate after the
-  next poll.
-- Component: list renders author/text/time, whitespace preserved (`white-space: pre-wrap`), Load
-  older hidden when `hasMore` false, autoscroll to bottom on initial load.
+Acceptance: room-panel design §7 (Vitest) and §8 (Playwright), room-feed design §9.
 
 Depends on: chunks 5, 6, 7, 8.
 
@@ -605,8 +601,10 @@ Depends on: chunks 5, 6, 7, 8.
 
 ## Chunk 10 — New chatroom flow (Flow A)
 
-**Spec needed: YES** (short) — popup vs panel presentation for a draft pin, the info bubble,
-the title switch animation/none, and the exact 409 hand-off UX (notice placement and wording).
+**Spec needed: YES** — `2026-09-17-new-room-flow-design.md` (popup component, info bubble,
+hand-off for both outcomes, 409 notice placement and wording, `ComposeForm` focus and
+failure-copy props, Vitest and Playwright tests). Where this section and that spec differ, the
+spec wins.
 
 Goal: click an empty spot, name yourself, write a message, get a live room; handle the
 concurrent-creation conflict.
@@ -615,10 +613,16 @@ PRD sections: 3 Flow A (all steps), 6.5 (409), 6.7 (state transfer).
 
 Scope
 - `components/room/NewRoomPopup.tsx`: placeholder title "New chatroom", tooltip info icon with
-  the PRD text, `ComposeForm` with `submitLabel: "Create"`.
-- `components/room/RoomTitle.tsx`: shows room name (used by RoomPanel via `titleSlot`).
-- On submit: `api.rooms.create({lat,lng,author,text})`. `created` → dispatch `roomCreated(room)`
-  (selection becomes `room`, panel opens with the first message already in history). `conflict`
+  the PRD text (hover and focus only), `ComposeForm` with `submitLabel: "Create"`.
+- No `RoomTitle`: the panel title stays `room.name` (new-room-flow design §1, decision 5).
+- `components/room/MovedNotice.tsx`: the dismissible 409 notice at the top of the room panel's
+  footer, derived from `prefill`.
+- `ComposeForm`: optional `autoFocusField` and `submitFailedMessage`.
+- A create outcome always takes over the panel, even if the visitor navigated away while the
+  request was in flight.
+- On submit: `api.rooms.create({lat,lng,author,text})`. `created` → dispatch
+  `roomCreated(room, message)` (selection becomes `room` with the first message as `seed`, a
+  path chunk 9 already built; the panel opens showing it without a history fetch). `conflict`
   → dispatch `movedToExisting(room, { author, text })`; panel shows the alert "A chatroom
   already exists here, you have been moved to it" and the compose form is prefilled.
 - Refresh pins after creation so the new room's pin replaces the draft pin.
@@ -688,8 +692,9 @@ Scope
   component (`components/map/MapShell.tsx`) taking `initialSelection` and `initialCenter`.
 - Keep the URL in sync: selecting a room pushes `/room/<id>` with `history.replaceState`
   (no navigation); closing returns to `/`.
-- Error surfaces: pin fetch failure and message fetch failure show a dismissible alert; API
-  `not_found` for a deleted room closes the panel with a notice.
+- Error surfaces: pin fetch failure shows a dismissible alert; a feed `error.notFound` (deleted
+  room) closes the panel with a page-level notice. In-panel message-fetch alerts and hints
+  already exist from chunk 9.
 
 Acceptance
 - Integration-ish test of the page's data function; component test that `MapShell` with an
@@ -732,6 +737,7 @@ Parallel groups: {4, 5} after {2, 3}; {6, 7, 8} after {3, 4}; {10, 11} after 9.
 | ----- | ---- | ------ |
 | 6     | `<date>-map-shell-design.md`   | Leaflet/Next integration, viewport fetch, click vs drag, pins, page layout (map + panel + popup on desktop and phone), scroll behaviour of the panel (chunk 9 UI) |
 | 8     | `<date>-room-feed-design.md`   | Reducer/effects contract, hook contract, realtime adapter contract, dedupe and ordering rules (chunks 8, 9 hook, 11) |
-| 10    | `<date>-new-room-flow-design.md` | Draft-pin popup presentation, info bubble, title switch, 409 notice and prefill UX |
+| 9     | `2026-09-17-room-panel-design.md` | Panel components and states, error surfaces, scroll semantics, time format, selection seed path, Vitest and Playwright tests |
+| 10    | `2026-09-17-new-room-flow-design.md` | Draft-pin popup, info bubble, title switch, 409 notice and prefill UX, focus hand-off, Vitest and Playwright tests |
 
 All other chunks are planned directly from this document plus `docs/PRD.md`.

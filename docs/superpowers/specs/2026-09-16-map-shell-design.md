@@ -249,6 +249,9 @@ export function selectionReducer(s: Selection, a: SelectionAction): Selection;
 | any | `movedToExisting(room, prefill)` | `room(room, prefill)` |
 | any | `close` | `none` |
 
+Chunk 9 extends this contract: the room selection gains `seed?: Message` and `roomCreated`
+carries the first `message` (see `2026-09-17-room-panel-design.md` §3.1).
+
 `prefill` is carried untouched; chunk 9 consumes it. Because the room panel is keyed by
 `room.id`, selecting a different room remounts it, which resets chunk 9's feed hook.
 
