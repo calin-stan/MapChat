@@ -12,7 +12,9 @@ The map fills the page. Pins for the rooms inside the viewport appear and refres
 and a timer. Clicking an empty spot places a draft pin. Clicking a pin selects that room. One
 floating panel in the top-right corner shows, depending on the selection, a greeting, the
 new-room form or the room panel. Panel contents beyond the greeting are placeholders that
-chunks 9 and 10 replace.
+chunks 9 and 10 replace. (Superseded: chunks 9 and 10 have since shipped the real new-room form
+and room panel described in PRD §3; "placeholder" below is historical, describing this chunk's
+own scope at the time it was written.)
 
 Decisions taken in brainstorming that extend the chunks document:
 
@@ -45,6 +47,7 @@ app/page.tsx (server)  ──renders──►  MapShell (client)
                                         ├─ MapStatus (truncation / refresh error pill)
                                         └─ panel slot: WelcomeCard | new-room placeholder | room placeholder
                                              (all inside PanelFrame)     components/panel/PanelFrame.tsx
+                                             (superseded: NewRoomPopup / RoomPanel, chunks 9-10)
 ```
 
 `MapView` receives data as props and emits three events. It holds no application state. All
@@ -354,7 +357,8 @@ Unit (Vitest, Node):
   rejected box keeps old pins and sets `error`, and the next success clears it; the interval
   runs only while visible; a visibility restore refreshes immediately; `insertRoom` dedupes.
 
-Component (Vitest, jsdom, `react-leaflet` mocked):
+Component (Vitest, jsdom, `react-leaflet` mocked; superseded by chunks 9-10's own component
+suites once `NewRoomPopup` and `RoomPanel` replaced the placeholders these describe):
 
 - `RoomPins` renders one marker per room and gives the selected room the `selected` icon.
 - `MapShell` shows the greeting first; the "New chatroom" placeholder after `onEmptyClick`; the
