@@ -29,7 +29,7 @@ const postgresStatus = z.object({
   extension: z.literal("postgres_changes"),
   status: z.enum(["ok", "error"]),
   channel: z.string(),
-  message: z.string().optional(),
+  message: z.unknown().optional(),
 });
 
 /**
@@ -81,7 +81,8 @@ export const subscribeToRoom: SubscribeToRoom = (roomId, handlers, client = getB
         const result = postgresStatus.safeParse(payload);
         if (!result.success || result.data.channel !== name) return;
         if (result.data.status === "error") {
-          fail(`POSTGRES_CHANGES_ERROR${result.data.message ? `: ${result.data.message}` : ""}`);
+          const { message } = result.data;
+          fail(typeof message === "string" && message !== "" ? `POSTGRES_CHANGES_ERROR: ${message}` : "POSTGRES_CHANGES_ERROR");
           return;
         }
         postgresReady = true;

@@ -303,6 +303,14 @@ describe("subscribeToRoom", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("fails on a Postgres error whose message is not a string", () => {
+    const { channel, handlers, removeChannel } = setup();
+    confirm(channel);
+    channel.system({ extension: "postgres_changes", status: "error", channel: `room:${ROOM}`, message: null });
+    expect(handlers.onFailed).toHaveBeenCalledExactlyOnceWith("POSTGRES_CHANGES_ERROR");
+    expect(removeChannel).toHaveBeenCalledTimes(1);
+  });
+
   it("cancels the deadline and ignores readiness after disposal", () => {
     const { channel, handlers, handle } = setup();
     channel.status("SUBSCRIBED");
