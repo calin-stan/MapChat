@@ -141,18 +141,32 @@ async function observeCatchUps(page: Page, roomId: string) {
 
 const probeOf = (page: Page) => page.evaluate(() => ({ ...window.__roomCatchUpProbe }));
 
-async function waitForCatchUpIdle(page: Page, minimum: number) {
+/** At least `minimum` catch-up requests have started, and every started one has settled. */
+export async function waitForCatchUpIdle(page: Page, minimum: number) {
   await expect.poll(async () => {
     const probe = await probeOf(page);
     return probe.settled >= minimum && probe.started === probe.settled;
   }).toBe(true);
 }
 
-/** Opens and settles the startup catch-up, then freezes time before scenario writes. */
+/**
+ * Closes every Realtime websocket before it reaches the server, which is what a
+ * refused connection looks like to the client (PRD 6.4): the room falls back to polling.
+ */
+export async function refuseRealtime(page: Page): Promise<void> {
+  await page.routeWebSocket(/\/realtime\/v1\/websocket/, (ws) => ws.close());
+}
+
+/** The panel root's `data-connection`: "connecting", "realtime" or "polling". */
+export const connectionOf = (page: Page) => page.locator("[data-connection]");
+
+/** Opens with realtime refused and settles the startup catch-up, then freezes time before scenario writes. */
 export async function openPollingRoom(page: Page, room: Room): Promise<Locator> {
+  await refuseRealtime(page);
   await observeCatchUps(page, room.id);
   await page.clock.install();
   const log = await openRoom(page, room);
+  await expect(connectionOf(page)).toHaveAttribute("data-connection", "polling");
   await waitForCatchUpIdle(page, 1);
   // A future instant avoids pauseAt rejecting a timestamp already passed during the tool round trip.
   // If this crosses a tick, settle that request too, while no scenario writes exist yet.
