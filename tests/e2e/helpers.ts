@@ -226,13 +226,28 @@ export async function fillCompose(page: Page, author: string, text: string): Pro
 const NEW_ROOM_HINT = /Your first message creates a chatroom at (-?\d+\.\d{6}), (-?\d+\.\d{6})\./;
 
 /**
- * Pixels of the opening view (1280 × 720, centre 46.7712, 23.6236, zoom 2) that
- * a test may click: left of the panel slot, below the status pill, clear of the
- * zoom control and the attribution, inside the one world copy.
+ * Pixels of the opening view (1280 × 720, initial props centre 46.7712, 23.6236,
+ * zoom 2) that a test may click. Measured with a throwaway script that clicked
+ * pixels and read the draft hint's coordinates (2026-09-17): at zoom 2 the world
+ * is 1024 px wide (256 × 2^2), narrower than the 1280 px viewport, so `MapView`'s
+ * `maxBounds`/`maxBoundsViscosity={1}` recentre the map horizontally — the
+ * rendered centre is lng ≈ 0, not 23.6236, and the single world copy spans
+ * x ∈ [128, 1152] (x=128 measured lng −180, x=1152 measured lng +180). The
+ * viewport is taller than 720, though, so the vertical centre is unaffected
+ * (measured lat ≈ 46.77 at y=360, matching the prop). `minX` stays well clear
+ * of the world edge (a raw lng like −179.9999997 rounds to −180.000000, and the
+ * ±0.0000005° bbox below would then get a 400) and `maxX` stays left of the
+ * panel slot (`PanelSlot` is `w-96` with `right-4`, i.e. x ∈ [880, 1264]).
  */
-const CLICK_AREA = { minX: 120, maxX: 840, minY: 120, maxY: 600 };
-/** Where ROOM_REGION and its pins are drawn; fixture rooms pile up there, so it is skipped. */
-const FIXTURE_PIXELS = { minX: 520, maxX: 660, minY: 280, maxY: 420 };
+const CLICK_AREA = { minX: 160, maxX: 860, minY: 120, maxY: 600 };
+/**
+ * Where ROOM_REGION (lat 40–50, lng 0–10) and its pins are drawn; fixture rooms
+ * pile up there, so it is skipped. Measured the same way: at this view lng 0–10
+ * is x ≈ 640–668 and lat 40–50 is y ≈ 346–386, widened for the pin width (24–28 px,
+ * centred on the point) and, above, for a pin's height (up to 42 px for the
+ * selected variant, drawn upward from the point).
+ */
+const FIXTURE_PIXELS = { minX: 610, maxX: 700, minY: 290, maxY: 410 };
 
 const randomInt = (min: number, max: number) => Math.floor(min + Math.random() * (max - min + 1));
 
