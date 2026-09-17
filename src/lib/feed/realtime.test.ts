@@ -262,6 +262,7 @@ describe("subscribeToRoom", () => {
     expect(handlers.onFailed).not.toHaveBeenCalled();
     expect(fake.channel).toHaveBeenLastCalledWith(`room:${id(9)}`);
   });
+
   it("accepts readiness before the channel callback without confirming early", () => {
     const { channel, handlers } = setup();
     postgresReady(channel);
@@ -370,5 +371,4 @@ describe("subscribeToRoom", () => {
     store.dispose();
     expect(vi.getTimerCount()).toBe(0);
   });
-
 });
