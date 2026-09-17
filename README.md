@@ -147,7 +147,7 @@ itself is loaded with `next/dynamic` and `ssr: false` because Leaflet touches `w
 | ----------------------------- | -------------------------------------------------------------------------------------------- |
 | `@/lib/map/viewport`          | `toQueryBoxes` (splits antimeridian-crossing viewports), `mergeBoxResults`, `PIN_LIMIT` (500) |
 | `@/lib/map/useRoomPins`       | 250 ms debounce, immediate viewport invalidation, request ownership, 30 s visible-tab ticks that skip pending work |
-| `@/lib/page/selection`        | `Selection` (`none` / `draft` / `room`) and `selectionReducer`                               |
+| `@/lib/page/selection`        | `Selection` (`none` / `draft` / `room`) and `selectionReducer`; `@/lib/page/handoff` wraps it for `MapShell` |
 | `@/components/map/MapShell`   | The page: selection, pins, status pill and the floating panel slot                          |
 | `@/components/map/MapView`    | `MapContainer` with OSM tiles, `RoomPins` and `DraftPin`; props in, events out               |
 | `@/components/map/pinIcon`    | `divIcon` pins (`room`, `selected`, `draft`); no icon assets, no `L.Icon.Default` patch       |
@@ -229,6 +229,43 @@ inside itself, so Send and at least 96 px of messages stay visible at 1280 × 72
 The panel root has `data-connection` (`connecting`, `polling`, `realtime`) for tests; nothing
 visible. A room created in chunk 10 passes its first message through the selection as `seed`
 and opens without a history request.
+
+## New chatroom flow
+
+Clicking an empty spot opens the "New chatroom" form in the floating panel (PRD 3 Flow A).
+Create sends the first message with the clicked coordinates; the server rounds them to six
+decimals, and the form's hint shows that rounded spot.
+Design: `docs/superpowers/specs/2026-09-17-new-room-flow-design.md`.
+
+| Module                           | Provides                                                                  |
+| --------------------------------- | ------------------------------------------------------------------------- |
+| `@/components/room/NewRoomPopup` | The draft panel: hint, info bubble, `ComposeForm` "Create", the create call; reports `onCreated`, `onConflict`, `onFailed` |
+| `@/components/room/MovedNotice`  | The dismissible notice shown after a create landed on an existing room     |
+| `@/lib/page/handoff`             | `handoffReducer` around `selectionReducer`: panel `revision`, create `recovery`, `draftPanelKey`, `roomPanelKey` |
+| `@/components/compose/ComposeForm` | Also `autoFocusField`, `submitFailedMessage`, `initialErrors`, `BOUNDED_TEXTAREA_CLASS` |
+
+- **Created.** The new room's pin is inserted at once and its panel opens already showing the
+  first message, with no history request; catch-up starts from that message.
+- **A room already exists there (409).** Nothing is written. The visitor is moved into the
+  existing room with a notice; name and message are prefilled and unsent. The notice goes away
+  when dismissed or after a successful send.
+- **The outcome always takes over the panel.** A create that settles after the visitor closed
+  the form, opened a room or placed another draft still opens its room, or restores its draft,
+  and replaces whatever is showing, including unsent edits made meanwhile. Several pending
+  creates apply in the order they settle. Every outcome mounts a fresh panel, even for a room
+  that is already open. Pending creates do not survive a page reload.
+- **Failure.** The submitted name and message come back in a fresh form at the submitted
+  coordinates with the error. Nothing is retried automatically. After a lost response the room
+  may exist: Create at the same spot then opens it through the 409 path, while moving the pin
+  first starts a separate creation at the new spot.
+- **Pins.** A room inserted by an outcome keeps its pin while it is selected, even when an
+  older refresh omits it. After closing, the pin follows the normal viewport refresh and the
+  500-pin cap.
+- The info bubble opens on hover and keyboard focus only (see `docs/KNOWN_LIMITATIONS.md`).
+
+`tests/e2e/new-room.spec.ts` covers the flow in Chromium. Each run leaves three rooms at
+random spots outside the fixture region; `clickEmptySpot` retries around existing rooms, and
+on a very crowded local map it fails with a hint to reset disposable data.
 
 ## Tests
 

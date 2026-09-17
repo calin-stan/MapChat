@@ -95,8 +95,12 @@ Modified files
   passed to its `Textarea`, allowing the room panel's bounded sizing (section 4.1). Chunk 9
   owns this integration change; validation, submission and default callers keep their contracts.
 - `src/components/map/MapShell.tsx` and its test: the room placeholder becomes
-  `<RoomPanel key={selection.room.id} room={selection.room} seed={selection.seed}
+  `<RoomPanel key={roomPanelKey(handoff, selection.room)} room={selection.room} seed={selection.seed}
   prefill={selection.prefill} onClose={close} />`.
+
+  Chunk 10 supersedes Chunk 9's room-ID-only key with a revision-aware handoff key. Ordinary
+  selection keeps its mounted panel; every create outcome increments the revision and fresh-mounts
+  the destination panel, including an already-selected room. See the new-room-flow design §6.
 - `package.json` (`@playwright/test`, script `test:e2e`), `.gitignore` (`test-results/`,
   `playwright-report/`), `README.md` (room panel and e2e sections).
 
