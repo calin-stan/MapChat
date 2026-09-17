@@ -2,6 +2,7 @@ import { vi } from "vitest";
 
 import type { MessagesApi } from "@/lib/api/client";
 import type { RealtimeHandlers, SubscribeToRoom } from "@/lib/feed/realtime";
+import type { FeedTimers } from "@/lib/feed/store";
 import type { PostMessageInput } from "@/lib/schemas/message";
 import type { CatchUpPage, Message, MessagePage } from "@/lib/schemas/types";
 
@@ -81,3 +82,19 @@ export function fakeRealtime() {
 }
 
 export const TEST_CONFIG = { pollIntervalMs: 30_000, realtimeIdleTimeoutMs: 180_000 };
+
+/** Timers the test fires by hand, for component tests that keep real timers for user-event. */
+export function manualTimers() {
+  const intervals = new Map<number, () => void>();
+  let nextId = 1;
+  const timers = {
+    setInterval: (callback: () => void) => {
+      intervals.set(nextId, callback);
+      return nextId++;
+    },
+    clearInterval: (handle: number) => void intervals.delete(handle),
+    setTimeout: () => 0, // the idle timer never fires in these tests
+    clearTimeout: () => {},
+  } as unknown as FeedTimers;
+  return { timers, tick: () => [...intervals.values()].forEach((callback) => callback()) };
+}
