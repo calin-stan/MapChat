@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -59,6 +59,7 @@ function setup(props: Partial<RoomPanelProps> = {}) {
     realtime,
     onClose,
     tick: () => act(() => clock.tick()),
+    idleStarts: clock.idleStarts,
     root: () => view.container.firstElementChild as HTMLElement,
     author: () => screen.getByLabelText("Display name"),
     text: () => screen.getByLabelText("Message"),
@@ -73,6 +74,17 @@ async function openPolling(props: Partial<RoomPanelProps> = {}) {
   ctx.messages.list[0].resolve(page([msg(1), msg(2)], true));
   await settle();
   act(() => ctx.realtime.attempts[0].handlers.onFailed("refused"));
+  ctx.messages.listAfter[0].resolve(catchUp([], id(2)));
+  await settle();
+  return ctx;
+}
+
+/** History [1, 2] loaded, realtime confirmed, the confirmation catch-up answered empty. */
+async function openLive() {
+  const ctx = setup();
+  ctx.messages.list[0].resolve(page([msg(1), msg(2)], true));
+  await settle();
+  act(() => ctx.realtime.attempts[0].handlers.onSubscribed());
   ctx.messages.listAfter[0].resolve(catchUp([], id(2)));
   await settle();
   return ctx;
@@ -167,6 +179,53 @@ describe("RoomPanel states", () => {
     const { author } = await openPolling();
 
     expect(author()).toHaveValue("remembered");
+  });
+});
+
+describe("RoomPanel realtime", () => {
+  it("reports the realtime connection and shows a live insert", async () => {
+    const { root, realtime } = await openLive();
+    expect(root()).toHaveAttribute("data-connection", "realtime");
+
+    act(() => realtime.attempts[0].handlers.onInsert(msg(3)));
+
+    expect(within(screen.getByRole("log")).getByText("message 3")).toBeInTheDocument();
+  });
+
+  it("counts pointer, keyboard and scroll events inside the panel as activity", async () => {
+    const { root, text, idleStarts } = await openLive();
+    expect(idleStarts()).toBe(1); // started by the confirmation
+
+    fireEvent.pointerMove(root());
+    expect(idleStarts()).toBe(2);
+    fireEvent.keyDown(text());
+    expect(idleStarts()).toBe(3);
+    fireEvent.scroll(screen.getByRole("log")); // delegated to onUserScroll, counted exactly once
+    expect(idleStarts()).toBe(4);
+    fireEvent.scroll(text()); // other descendant scrolls still use root capture
+    expect(idleStarts()).toBe(5);
+
+    fireEvent.pointerDown(document.body); // outside the panel
+    expect(idleStarts()).toBe(5);
+  });
+
+  it("does not start an idle timer from activity while polling", async () => {
+    const { root, idleStarts } = await openPolling();
+
+    fireEvent.pointerMove(root());
+
+    expect(idleStarts()).toBe(0);
+  });
+
+  it("detaches activity tracking on unmount", async () => {
+    const { root, unmount } = await openLive();
+    const remove = vi.spyOn(root(), "removeEventListener");
+
+    unmount();
+
+    expect(remove.mock.calls.map(([type]) => type).sort()).toEqual(
+      ["keydown", "pointerdown", "pointermove", "scroll", "touchstart", "wheel"],
+    );
   });
 });
 

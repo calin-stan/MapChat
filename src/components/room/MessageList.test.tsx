@@ -388,3 +388,33 @@ describe("MessageList handle", () => {
     expect(() => finish()).not.toThrow();
   });
 });
+
+describe("MessageList user-scroll activity", () => {
+  it("identifies only its own scroll element", () => {
+    const { ref, list } = setup({ messages: many(1, 10) });
+    expect(ref.current!.ownsScrollTarget(list)).toBe(true);
+    expect(ref.current!.ownsScrollTarget(document.body)).toBe(false);
+    expect(ref.current!.ownsScrollTarget(null)).toBe(false);
+  });
+
+  it("reports reader scrolling", () => {
+    const onUserScroll = vi.fn();
+    const { userScrollTo } = setup({ messages: many(1, 10), onUserScroll });
+    userScrollTo(100); // differs from the initial automatic bottom position
+    expect(onUserScroll).toHaveBeenCalledTimes(1);
+  });
+
+  it("excludes initial positioning, incoming follow and anchor correction", () => {
+    const onUserScroll = vi.fn();
+    const { list, update, userScrollTo } = setup({ messages: many(6, 15), onUserScroll });
+    fireEvent.scroll(list); // initial automatic positioning
+    update({ messages: many(6, 16) });
+    fireEvent.scroll(list); // automatic following of an incoming row
+    expect(onUserScroll).not.toHaveBeenCalled();
+    userScrollTo(100);
+    expect(onUserScroll).toHaveBeenCalledTimes(1);
+    update({ messages: many(1, 16) });
+    fireEvent.scroll(list); // automatic anchor correction after prepend
+    expect(onUserScroll).toHaveBeenCalledTimes(1);
+  });
+});
