@@ -233,6 +233,18 @@ describe("ComposeForm props", () => {
     }
   });
 
+  it("passes textareaClassName to the message field only", () => {
+    const { author, text } = setup({ textareaClassName: "field-sizing-fixed h-16" });
+    expect(text()).toHaveClass("field-sizing-fixed", "h-16");
+    expect(text()).not.toHaveClass("field-sizing-content"); // the default sizing is replaced, not doubled
+    expect(author()).not.toHaveClass("h-16");
+  });
+
+  it("keeps the content-sized message field by default", () => {
+    const { text } = setup();
+    expect(text()).toHaveClass("field-sizing-content");
+  });
+
   it("uses submitLabel for the button", () => {
     const { submit } = setup({ submitLabel: "Create" });
     expect(submit()).toHaveTextContent("Create");
