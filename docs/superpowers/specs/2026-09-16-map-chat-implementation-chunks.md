@@ -677,8 +677,9 @@ Acceptance
   mapping test.
 - Hook test with fake adapter: `channelFailed` → polling starts immediately; idle timer
   fires → unsubscribe + immediate poll; `send` while polling re-subscribes; hidden tab → idle.
-- Manual smoke (PRD 8): two browsers, message appears without reload; after 3 minutes idle the
-  Network tab shows the websocket closed and a poll fired at once; sending re-opens it.
+- Manual smoke (PRD 8): two browsers, message appears without reload; at the 3-minute idle
+  timeout the channel leaves (`phx_leave`) and a poll fires at once; the Network tab shows the
+  websocket closed about 50 s later (supabase-js deferred disconnect); sending re-opens it.
 
 Depends on: chunks 8, 9.
 

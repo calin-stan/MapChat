@@ -595,8 +595,9 @@ Additional acceptance cases for the accepted review findings:
   still leaves realtime. A real reader-scroll gesture postpones idle, and later inactivity
   still expires it.
 
-- Manual smoke (chunk 11, PRD §8): two browsers, a message appears without reload; after the
-  idle timeout the websocket closes and a poll fires at once; sending reopens it.
+- Manual smoke (chunk 11, PRD §8): two browsers, a message appears without reload; at the
+  idle timeout the channel leaves (`phx_leave`) and a poll fires at once; the websocket closes
+  about 50 s later (supabase-js deferred disconnect); sending reopens it.
 
 ## 10. Out of scope
 
