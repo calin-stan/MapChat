@@ -340,14 +340,16 @@ test.describe("10. bounded compose layout", () => {
     expect(sentText).toBe(LONG_DRAFT);
   });
 
-  test("fetch alert, backlog notice and compose error fit together with the long draft", async ({ page }) => {
+  test("moved notice, fetch alert, backlog notice and compose error fit together with the long draft", async ({ page }) => {
     await page.goto("/e2e/room-panel-layout");
+    await expect(page.getByText("A chatroom already exists here, you have been moved to it.")).toBeVisible();
     await page.getByRole("button", { name: "Load more messages" }).click();
     await expect(page.getByText("Use Load more messages to retry.")).toBeVisible();
     await fillCompose(page, "ann", LONG_DRAFT);
     await page.getByRole("button", { name: "Send" }).click();
     await expect(page.getByText(/Couldn't send\./)).toBeVisible();
     await expect(page.getByText("More messages are available")).toBeVisible();
+    await expect(page.getByText("A chatroom already exists here, you have been moved to it.")).toBeVisible();
 
     await expectBoundedLayout(page);
   });

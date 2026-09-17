@@ -215,3 +215,76 @@ export async function fillCompose(page: Page, author: string, text: string): Pro
   await page.getByLabel("Display name").fill(author);
   await page.getByLabel("Message").fill(text);
 }
+
+const NEW_ROOM_HINT = /Your first message creates a chatroom at (-?\d+\.\d{6}), (-?\d+\.\d{6})\./;
+
+/**
+ * Pixels of the opening view (1280 × 720, centre 46.7712, 23.6236, zoom 2) that
+ * a test may click: left of the panel slot, below the status pill, clear of the
+ * zoom control and the attribution, inside the one world copy.
+ */
+const CLICK_AREA = { minX: 120, maxX: 840, minY: 120, maxY: 600 };
+/** Where ROOM_REGION and its pins are drawn; fixture rooms pile up there, so it is skipped. */
+const FIXTURE_PIXELS = { minX: 520, maxX: 660, minY: 280, maxY: 420 };
+
+const randomInt = (min: number, max: number) => Math.floor(min + Math.random() * (max - min + 1));
+
+/**
+ * Places the draft pin on a spot where no room exists and returns the
+ * coordinates shown in the popup's hint (the ones the server will store).
+ * Rooms accumulate in the local database across runs, so nothing here depends
+ * on a clean map: a click that opens an older room, lands in ROOM_REGION or
+ * hits coordinates that already have a room is retried elsewhere.
+ * Expects the map page with no panel open.
+ */
+export async function clickEmptySpot(page: Page): Promise<{ lat: number; lng: number }> {
+  await expect(page.getByRole("button", { name: "Zoom in" })).toBeVisible(); // Leaflet has mounted
+  const hint = page.getByText(NEW_ROOM_HINT);
+  const send = page.getByRole("button", { name: "Send" });
+  // exact: an accumulated room's random name occasionally contains "close" (e.g.
+  // "closed-gray-gibbon"), whose pin is also a role=button and would otherwise
+  // match this substring search while its own panel is open underneath.
+  const close = page.getByRole("button", { name: "Close", exact: true });
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const x = randomInt(CLICK_AREA.minX, CLICK_AREA.maxX);
+    const y = randomInt(CLICK_AREA.minY, CLICK_AREA.maxY);
+    const inFixturePixels =
+      x >= FIXTURE_PIXELS.minX && x <= FIXTURE_PIXELS.maxX && y >= FIXTURE_PIXELS.minY && y <= FIXTURE_PIXELS.maxY;
+    if (inFixturePixels) continue;
+
+    await page.mouse.click(x, y);
+    // The draft appears after the map's 500 ms double-click window; a pin opens its room at once.
+    // Nothing at all means the click came before the map listened (its handlers attach just
+    // after the zoom control shows): try again rather than fail.
+    const appeared = await hint
+      .or(send)
+      .waitFor({ state: "visible", timeout: 3_000 })
+      .then(() => true, () => false);
+    if (!appeared) continue;
+    if (await send.isVisible()) {
+      await close.click(); // landed on an older pin
+      continue;
+    }
+
+    const match = NEW_ROOM_HINT.exec(await hint.innerText());
+    if (match === null) throw new Error("clickEmptySpot: the hint has no coordinates");
+    const lat = Number(match[1]);
+    const lng = Number(match[2]);
+    const inRegion =
+      lat >= ROOM_REGION.minLat - 1 && lat <= ROOM_REGION.maxLat + 1 &&
+      lng >= ROOM_REGION.minLng - 1 && lng <= ROOM_REGION.maxLng + 1;
+    const half = 0.0000005;
+    const bbox = [lng - half, lat - half, lng + half, lat + half].map((n) => n.toFixed(7)).join(",");
+    const response = await page.request.get(`/api/rooms?bbox=${bbox}`);
+    expect(response.status(), await response.text()).toBe(200);
+    const { rooms } = (await response.json()) as { rooms: Room[] };
+    if (!inRegion && rooms.length === 0) return { lat, lng };
+
+    await close.click(); // taken or reserved: start the next attempt from the greeting
+    await expect(hint).toBeHidden();
+  }
+  throw new Error(
+    "clickEmptySpot: no free spot after 10 attempts. The local map is crowded; if its data is disposable, run `pnpm db:reset`.",
+  );
+}

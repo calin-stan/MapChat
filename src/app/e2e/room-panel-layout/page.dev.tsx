@@ -16,9 +16,10 @@ const room = {
 /**
  * A scripted feed: history loads, realtime is refused, the first catch-up
  * reports a backlog, the catch-up after it fails and every send fails. That
- * puts the fetch alert, the backlog notice and a compose error on screen
- * together. The script depends only on the cursor, so Strict Mode's second
- * store sees the same sequence as the first.
+ * puts the moved notice (from the prefill), the fetch alert, the backlog
+ * notice and a compose error on screen together. The script depends only on
+ * the cursor, so Strict Mode's second store sees the same sequence as the
+ * first.
  */
 const feedDeps: FeedDeps = {
   messages: {
@@ -48,7 +49,12 @@ export default function RoomPanelLayoutFixture() {
   return (
     <div className="relative h-dvh w-full overflow-hidden">
       <PanelSlot>
-        <RoomPanel room={room} onClose={() => {}} feedDeps={feedDeps} />
+        <RoomPanel
+          room={room}
+          prefill={{ author: "ana", text: "unsent draft" }}
+          onClose={() => {}}
+          feedDeps={feedDeps}
+        />
       </PanelSlot>
     </div>
   );
