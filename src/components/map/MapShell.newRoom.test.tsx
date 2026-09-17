@@ -214,6 +214,7 @@ describe("MapShell create outcomes", () => {
     expect(insertRoom).toHaveBeenCalledTimes(1);
     expect(insertRoom).toHaveBeenCalledWith(created);
     expect(heading(created.name)).toBeInTheDocument();
+    expect(window.location.pathname).toBe(`/room/${created.id}`); // the new room is shareable at once
     expect(within(screen.getByRole("log")).getAllByText("first message here")).toHaveLength(1);
     expect(screen.queryByTestId("draft")).toBeNull();
     expect(screen.getByRole("button", { name: created.name })).toHaveAttribute("data-selected", "true");
@@ -237,6 +238,7 @@ describe("MapShell create outcomes", () => {
 
     expect(insertRoom).toHaveBeenCalledWith(existing);
     expect(heading(existing.name)).toBeInTheDocument();
+    expect(window.location.pathname).toBe(`/room/${existing.id}`);
     expect(notice()).toBeInTheDocument();
     expect(author()).toHaveValue("ann");
     expect(text()).toHaveValue("my first words");

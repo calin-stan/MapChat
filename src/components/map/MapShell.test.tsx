@@ -124,6 +124,8 @@ afterEach(() => {
   cleanup();
   fakePins.current = null;
   vi.clearAllMocks();
+  vi.restoreAllMocks();
+  window.history.replaceState(null, "", "/"); // the shell moves the address; start every test on the map's own
 });
 
 describe("pinsToRender", () => {
@@ -280,5 +282,50 @@ describe("MapShell", () => {
     renderShell(pinsWith({ status: "error" }));
 
     expect(screen.getByRole("status").textContent).toBe("Couldn't refresh rooms");
+  });
+
+  describe("address", () => {
+    it("follows the open room and returns to the map's path after close", () => {
+      renderShell(pinsWith({ rooms: [roomA, roomB] }));
+      expect(window.location.pathname).toBe("/");
+
+      fireEvent.click(screen.getByRole("button", { name: roomA.name }));
+      expect(window.location.pathname).toBe(`/room/${roomA.id}`);
+
+      fireEvent.click(screen.getByRole("button", { name: roomB.name }));
+      expect(window.location.pathname).toBe(`/room/${roomB.id}`);
+
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      expect(window.location.pathname).toBe("/");
+    });
+
+    it("returns to the map's path when a draft replaces the open room", () => {
+      renderShell(pinsWith({ rooms: [roomA] }));
+      fireEvent.click(screen.getByRole("button", { name: roomA.name }));
+
+      fireEvent.click(screen.getByTestId("empty"));
+
+      expect(window.location.pathname).toBe("/");
+    });
+
+    it("replaces the current history entry instead of adding one", () => {
+      renderShell(pinsWith({ rooms: [roomA] }));
+      const entries = window.history.length;
+
+      fireEvent.click(screen.getByRole("button", { name: roomA.name }));
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(window.history.length).toBe(entries);
+    });
+
+    it("leaves a shared room URL alone when it already matches the selection", () => {
+      window.history.replaceState(null, "", `/room/${roomA.id}`);
+      const replaceState = vi.spyOn(window.history, "replaceState");
+
+      renderShell(pinsWith({ rooms: [roomA] }), { kind: "room", room: roomA });
+
+      expect(replaceState).not.toHaveBeenCalled();
+      expect(window.location.pathname).toBe(`/room/${roomA.id}`);
+    });
   });
 });

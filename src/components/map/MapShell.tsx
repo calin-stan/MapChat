@@ -13,6 +13,7 @@ import { useRoomPins } from "@/lib/map/useRoomPins";
 import type { LatLng } from "@/lib/map/viewport";
 import { draftPanelKey, handoffReducer, initialHandoff, roomPanelKey } from "@/lib/page/handoff";
 import type { Prefill, Selection } from "@/lib/page/selection";
+import { useSelectionUrl } from "@/lib/page/selectionUrl";
 import type { CreateRoomInput } from "@/lib/schemas/room";
 import type { Message, Room } from "@/lib/schemas/types";
 
@@ -51,6 +52,7 @@ export function MapShell({ initialSelection, initialCenter, initialZoom }: MapSh
   const { selection, recovery } = handoff;
   const pins = useRoomPins();
   const { insertRoom } = pins;
+  useSelectionUrl(selection);
   const rooms = useMemo(() => pinsToRender(pins.rooms, selection), [pins.rooms, selection]);
 
   const onEmptyClick = useCallback(
