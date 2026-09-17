@@ -44,6 +44,7 @@ to the stack.
 | `pnpm test`       | Vitest, single run                                  |
 | `pnpm test:watch` | Vitest in watch mode                                |
 | `pnpm test:api`   | Route-handler tests in `tests/api/` (needs the stack)  |
+| `pnpm test:e2e`   | Playwright (Chromium) against the dev server and the stack |
 | `pnpm db:status`  | `supabase status` (URLs and keys for this project)  |
 | `pnpm db:env`     | Regenerate `.env.local` from the running stack      |
 
@@ -166,14 +167,18 @@ The two Fiji seed rooms are visited separately at opposite edges of the single r
 
 ## Room feed
 
-The client-side core of an open room (PRD 4 "History", 6.4, 6.7) is a pure reducer. The
-store that runs its effects and the React hook arrive with chunk 9; the realtime adapter
-with chunk 11. Design: `docs/superpowers/specs/2026-09-16-room-feed-design.md`.
+The client-side core of an open room (PRD 4 "History", 6.4, 6.7) is a pure reducer, a
+framework-free store that runs its effects, and a React hook over that store. The realtime
+adapter arrives with chunk 11; until then every room polls.
+Design: `docs/superpowers/specs/2026-09-16-room-feed-design.md`.
 
-| Module                | Provides                                                                                   |
-| --------------------- | ------------------------------------------------------------------------------------------ |
-| `@/lib/feed/types`    | `FeedState`, `FeedAction`, `FeedEffect`, `FeedError`, `Connection`, `FetchOp`             |
-| `@/lib/feed/reducer`  | `initialFeedState(roomId)`, `feedReducer(state, action)` returning `[state, effects]`, `mergeMessages`, `connectionOf`, `EMPTY_HISTORY_MESSAGE` |
+| Module                  | Provides                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------ |
+| `@/lib/feed/types`      | `FeedState`, `FeedAction`, `FeedEffect`, `FeedError`, `Connection`, `FetchOp`             |
+| `@/lib/feed/reducer`    | `initialFeedState(roomId)`, `feedReducer(state, action)` returning `[state, effects]`, `mergeMessages`, `connectionOf`, `EMPTY_HISTORY_MESSAGE` |
+| `@/lib/feed/realtime`   | `SubscribeToRoom`, `RealtimeHandlers`, `RealtimeHandle`; `pollingOnlySubscribe`, the stand-in adapter that refuses realtime |
+| `@/lib/feed/store`      | `createFeedStore(roomId, deps, seed?)`, `FeedDeps`, `FeedStore`, `FeedNotReadyError`      |
+| `@/lib/feed/useRoomFeed` | `useRoomFeed(roomId, { seed, deps })` returning `RoomFeed`                                |
 
 `feedReducer` performs no I/O. It returns the next state plus an ordered list of effects
 (`fetchInitial`, `fetchOlder`, `fetchNewer`, `subscribe`, `unsubscribe`, `startPolling`,
@@ -188,6 +193,43 @@ fetch settles. A 404 from any fetch is terminal: the reducer drops every transpo
 ignores everything except `closed`. `connectionOf(state)` gives `realtime`, `polling` or
 `connecting` for display.
 
+`createFeedStore` is inert until `start({ hidden })`. It queues reentrant actions, gives
+every `subscribe` effect its own attempt token (the first failure is terminal, a late
+callback is ignored, a handle is always cleaned up exactly once) and ignores every result
+that arrives after `dispose()`. `send` rejects with `FeedNotReadyError` and posts nothing
+unless the room is open. `loadNewer()` returns a promise that resolves once the fetch that
+call started has been reduced and published, or at once when the request was ignored; read
+failures stay in `error` and never reject it. `useRoomFeed` creates the store in a layout
+effect and disposes it in the cleanup, so rendering, server rendering and Strict Mode's
+effect replay never reuse or leak a store; it also tracks `document.visibilityState`.
+
+## Room panel
+
+Clicking a pin (or pressing Enter or Space on a focused pin) opens the room in the floating
+panel (PRD 3 Flow B). Design: `docs/superpowers/specs/2026-09-17-room-panel-design.md`.
+
+| Module                             | Provides                                                                 |
+| ---------------------------------- | ------------------------------------------------------------------------ |
+| `@/components/room/RoomPanel`      | The panel: feed hook, loading and error surfaces, backlog notice, compose form |
+| `@/components/room/MessageList`    | The scroll container (`role="log"`), "Load older", the "New messages" pill; handle `scrollToBottom(id?)` and `holdPosition()` |
+| `@/components/room/listScroll`     | Pure scroll decisions: `classifyChange`, `decideScroll`, `decideResize`, `pickAnchor`, `anchorAdjustment`, `isNearBottom` |
+| `@/components/panel/PanelSlot`     | The top-right slot that caps the panel at the viewport height            |
+| `@/lib/time/format`                | `formatMessageTime(iso, { now, timeZone, locale })`: `17:03`, `16 Sep 17:03`, `16 Sep 2025 17:03` |
+
+The list opens at the newest message. New rows are found by comparing message ids, so rows
+that land between displayed rows count too. A reader within 32 px of the bottom follows
+incoming messages; otherwise the first visible row keeps its place and "New messages" shows.
+An own send always ends at the bottom. "Load more messages" keeps the reader's position for
+the whole request and shows the pill. Only one fetch runs at a time, so "Load older" and
+"Load more messages" are disabled while any fetch is in flight. A failed initial load and a
+room that no longer exists show a persistent hint and keep the form disabled; a failed older
+or newer fetch shows a dismissible alert. The message field is a fixed 64 px and scrolls
+inside itself, so Send and at least 96 px of messages stay visible at 1280 × 720.
+
+The panel root has `data-connection` (`connecting`, `polling`, `realtime`) for tests; nothing
+visible. A room created in chunk 10 passes its first message through the selection as `seed`
+and opens without a history request.
+
 ## Tests
 
 Unit tests live next to the code as `*.test.ts` and run in a Node environment. A component
@@ -195,6 +237,26 @@ test opts into jsdom with `// @vitest-environment jsdom` as its first line and u
 Library (`@testing-library/react`, `user-event`); `vitest.setup.ts` registers the jest-dom
 matchers for every file and, when a DOM exists, cleans it between tests. Target one file with
 `pnpm test <path>` (no `--`).
+
+## End-to-end tests
+
+`pnpm test:e2e` runs Playwright (Chromium, 1280 × 720) against the real dev server and the
+local Supabase stack. It proves what jsdom cannot: layout, scrolling and the full HTTP path
+with polling. First time: `pnpm exec playwright install chromium`.
+
+- The base URL is `https://map-chat.map-chat.test` (the Supbuddy mapping); set `E2E_BASE_URL`
+  for another one. Playwright starts `pnpm dev` when no server answers and reuses a running one.
+- HTTP scenarios create their data through the API and never reset the database. Rooms accumulate.
+  An operator may separately choose `pnpm db:reset` only when all local development data is
+  disposable: it resets the entire local database, reapplies migrations and reloads seed.sql,
+  discarding unrelated rooms/messages and unrecorded local changes too. It is not test cleanup.
+- `pnpm test:api` and `pnpm test:db` truncate tables. Never run them while `pnpm test:e2e` runs.
+- Polling scenarios settle startup, pause their installed clock before setup writes, then fire
+  ticks with `page.clock.fastForward(30_000)`. Real fetch/JSON completion is observed; the
+  poll interval is not overridden. `E2E_SLOW_SETUP=1` deliberately adds 31 seconds of runner
+  time after each polling room opens, proving setup cannot accidentally fire a poll.
+- `src/app/e2e/**/page.dev.tsx` are fixture pages for these tests. `next.config.ts` lists the
+  `dev.tsx` page extension only outside production, so `next build` does not contain them.
 
 ## Compose form and display name
 
