@@ -6,6 +6,7 @@ import { useCallback, useMemo, useReducer } from "react";
 import { MapStatus } from "@/components/map/MapStatus";
 import type { MapViewProps } from "@/components/map/MapView";
 import { PanelSlot } from "@/components/panel/PanelSlot";
+import { RoomGoneNotice } from "@/components/panel/RoomGoneNotice";
 import { WelcomeCard } from "@/components/panel/WelcomeCard";
 import { NewRoomPopup } from "@/components/room/NewRoomPopup";
 import { RoomPanel } from "@/components/room/RoomPanel";
@@ -51,7 +52,7 @@ export function MapShell({ initialSelection, initialCenter, initialZoom }: MapSh
   const [handoff, dispatch] = useReducer(handoffReducer, initialSelection, initialHandoff);
   const { selection, recovery } = handoff;
   const pins = useRoomPins();
-  const { insertRoom } = pins;
+  const { insertRoom, refresh } = pins;
   useSelectionUrl(selection);
   const rooms = useMemo(() => pinsToRender(pins.rooms, selection), [pins.rooms, selection]);
 
@@ -84,6 +85,15 @@ export function MapShell({ initialSelection, initialCenter, initialZoom }: MapSh
     (input: CreateRoomInput, error: unknown) => dispatch({ type: "failed", input, error }),
     [],
   );
+  // The open room answered 404: close its panel, say so, and fetch the pins
+  // again so the dead one goes. The reducer ignores a report about any other room.
+  const onGone = useCallback(
+    (room: Room) => {
+      refresh();
+      dispatch({ type: "roomGone", roomId: room.id });
+    },
+    [refresh],
+  );
 
   return (
     <div className="relative h-dvh w-full overflow-hidden">
@@ -101,6 +111,9 @@ export function MapShell({ initialSelection, initialCenter, initialZoom }: MapSh
       </div>
       <MapStatus truncated={pins.truncated} refreshFailed={pins.status === "error"} />
       <PanelSlot>
+        {selection.kind === "none" && selection.gone ? (
+          <RoomGoneNotice room={selection.gone} onDismiss={close} />
+        ) : null}
         {selection.kind === "none" ? <WelcomeCard /> : null}
         {selection.kind === "draft" ? (
           // The key survives ordinary draft moves, so typed text does; a rejected create gets a new one.
@@ -124,6 +137,7 @@ export function MapShell({ initialSelection, initialCenter, initialZoom }: MapSh
             seed={selection.seed}
             prefill={selection.prefill}
             onClose={close}
+            onGone={onGone}
           />
         ) : null}
       </PanelSlot>

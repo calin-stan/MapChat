@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MapShell, pinsToRender } from "@/components/map/MapShell";
 import type { MapViewProps } from "@/components/map/MapView";
+import { roomGoneNoticeText } from "@/components/panel/RoomGoneNotice";
+import { ApiRequestError } from "@/lib/api/client";
 import type { RoomPins } from "@/lib/map/useRoomPins";
 import type { Selection } from "@/lib/page/selection";
 import type { Message, Room } from "@/lib/schemas/types";
@@ -326,6 +328,50 @@ describe("MapShell", () => {
 
       expect(replaceState).not.toHaveBeenCalled();
       expect(window.location.pathname).toBe(`/room/${roomA.id}`);
+    });
+  });
+
+  describe("a room that no longer exists", () => {
+    const gone = () => Promise.reject(new ApiRequestError(404, "not_found", "Room not found"));
+
+    async function openGoneRoom(pins: RoomPins) {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      fakeMessages.list.mockImplementationOnce(gone);
+      renderShell(pins);
+      fireEvent.click(screen.getByRole("button", { name: roomA.name }));
+      await act(async () => {}); // the rejected history request settles and the panel reports it
+    }
+
+    it("closes the panel, shows the page-level notice and refreshes the pins", async () => {
+      const pins = pinsWith({ rooms: [roomA, roomB] });
+      await openGoneRoom(pins);
+
+      expect(screen.getByRole("status")).toHaveTextContent(roomGoneNoticeText(roomA));
+      expect(greeting()).toBeTruthy();
+      expect(closeButton()).toBeNull();
+      expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+      expect(pins.refresh).toHaveBeenCalledTimes(1);
+      expect(window.location.pathname).toBe("/");
+    });
+
+    it("drops the notice when it is dismissed", async () => {
+      await openGoneRoom(pinsWith({ rooms: [roomA, roomB] }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+      expect(screen.queryByRole("status")).toBeNull();
+      expect(greeting()).toBeTruthy();
+    });
+
+    it.each([
+      ["another room is opened", () => fireEvent.click(screen.getByRole("button", { name: roomB.name }))],
+      ["a draft is placed", () => fireEvent.click(screen.getByTestId("empty"))],
+    ])("drops the notice when %s", async (_label, next) => {
+      await openGoneRoom(pinsWith({ rooms: [roomA, roomB] }));
+
+      next();
+
+      expect(screen.queryByText(roomGoneNoticeText(roomA))).toBeNull();
     });
   });
 });

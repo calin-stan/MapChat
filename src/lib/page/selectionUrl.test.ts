@@ -15,6 +15,7 @@ const roomA: Room = {
 describe("pathForSelection", () => {
   it.each<[string, Selection]>([
     ["nothing", { kind: "none" }],
+    ["a gone-room notice", { kind: "none", gone: roomA }],
     ["a draft", { kind: "draft", lat: 1, lng: 2 }],
   ])("is the map's own path while %s is selected", (_label, selection) => {
     expect(pathForSelection(selection)).toBe("/");

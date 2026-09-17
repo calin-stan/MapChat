@@ -71,6 +71,21 @@ describe("handoffReducer", () => {
     expect(handoffReducer(openA, { type: "clickPin", room: { ...roomA } })).toBe(openA);
   });
 
+  it("roomGone closes the open room and keeps the revision", () => {
+    const next = handoffReducer(openA, { type: "roomGone", roomId: roomA.id });
+
+    expect(next).toEqual({ selection: { kind: "none", gone: roomA }, revision: 0, recovery: null });
+  });
+
+  it.each([
+    ["nothing", start],
+    ["a draft", draft],
+    ["a recovered draft", recovered],
+    ["another room", openA],
+  ])("returns the same state for a roomGone report while %s is selected", (_label, from) => {
+    expect(handoffReducer(from, { type: "roomGone", roomId: roomB.id })).toBe(from);
+  });
+
   it("created selects the room with its seed under a new revision", () => {
     const next = handoffReducer(draft, { type: "created", room: roomA, message: first });
 

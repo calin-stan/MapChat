@@ -24,12 +24,14 @@ const none: Selection = { kind: "none" };
 const draft: Selection = { kind: "draft", lat: 1, lng: 2 };
 const selectedA: Selection = { kind: "room", room: roomA, prefill };
 const createdA: Selection = { kind: "room", room: roomA, seed: { ...first, chatroomId: roomA.id } };
+const goneA: Selection = { kind: "none", gone: roomA };
 
 const everyState: [string, Selection][] = [
   ["none", none],
   ["draft", draft],
   ["room", selectedA],
   ["created room", createdA],
+  ["gone notice", goneA],
 ];
 
 describe("selectionReducer", () => {
@@ -82,11 +84,23 @@ describe("selectionReducer", () => {
     expect(selectionReducer(state, { type: "close" })).toEqual({ kind: "none" });
   });
 
+  it("roomGone for the open room clears the selection and remembers the room", () => {
+    expect(selectionReducer(selectedA, { type: "roomGone", roomId: roomA.id })).toEqual({
+      kind: "none",
+      gone: roomA,
+    });
+  });
+
+  it.each(everyState)("roomGone for a room that is not open returns the same %s state object", (_, state) => {
+    expect(selectionReducer(state, { type: "roomGone", roomId: roomB.id })).toBe(state);
+  });
+
   it("does not mutate the previous state", () => {
     const before = structuredClone(selectedA);
 
     selectionReducer(selectedA, { type: "clickEmpty", lat: 1, lng: 1 });
     selectionReducer(selectedA, { type: "close" });
+    selectionReducer(selectedA, { type: "roomGone", roomId: roomA.id });
 
     expect(selectedA).toEqual(before);
   });

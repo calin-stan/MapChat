@@ -66,6 +66,9 @@ function setup(props: Partial<RoomPanelProps> = {}) {
     text: () => screen.getByLabelText("Message"),
     send: () => screen.getByRole("button", { name: "Send" }),
     unmount: view.unmount,
+    rerender: (nextProps: Partial<RoomPanelProps>) => view.rerender(
+      <RoomPanel room={room} onClose={onClose} feedDeps={feedDeps} {...props} {...nextProps} />,
+    ),
   };
 }
 
@@ -156,6 +159,49 @@ describe("RoomPanel states", () => {
     expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
     expect(screen.queryByRole("log")).not.toBeInTheDocument();
     expect(send()).toBeDisabled();
+  });
+
+  it("reports a 404 to onGone once, with the room", async () => {
+    const onGone = vi.fn();
+    const { messages, tick, rerender } = await openPolling({ onGone });
+    expect(onGone).not.toHaveBeenCalled();
+
+    tick();
+    messages.listAfter[1].reject(new ApiRequestError(404, "not_found", "Room not found"));
+    await settle();
+    expect(onGone).toHaveBeenCalledTimes(1);
+    expect(onGone).toHaveBeenCalledWith(room);
+
+    // A real dependency change, not just another promise flush (F-003).
+    rerender({ room: { ...room } });
+    expect(onGone).toHaveBeenCalledTimes(1);
+    const replacement = vi.fn();
+    rerender({ room: { ...room }, onGone: replacement });
+    expect(replacement).not.toHaveBeenCalled();
+  });
+
+  it("reports a terminal 404 when onGone is supplied later, once", async () => {
+    const { messages, rerender } = setup();
+    messages.list[0].reject(new ApiRequestError(404, "not_found", "Room not found"));
+    await settle();
+    expect(screen.getByText(ROOM_GONE_HINT)).toBeInTheDocument();
+
+    const onGone = vi.fn();
+    rerender({ onGone });
+    expect(onGone).toHaveBeenCalledTimes(1);
+    expect(onGone).toHaveBeenCalledWith(room);
+    rerender({ room: { ...room }, onGone });
+    expect(onGone).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report other failures to onGone", async () => {
+    const onGone = vi.fn();
+    const { messages } = setup({ onGone });
+    messages.list[0].reject(new ApiRequestError(500, "internal", "boom"));
+    await settle();
+
+    expect(screen.getByText(LOAD_FAILED_HINT)).toBeInTheDocument();
+    expect(onGone).not.toHaveBeenCalled();
   });
 
   it("shows a seeded room at once with no history request", () => {
