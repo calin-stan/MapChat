@@ -11,7 +11,10 @@ type FakeMarkerProps = {
   icon: { options: { className?: string } };
   title?: string;
   interactive?: boolean;
-  eventHandlers?: { click?: () => void };
+  eventHandlers?: {
+    click?: () => void;
+    keydown?: (event: { originalEvent: KeyboardEvent }) => void;
+  };
 };
 
 // Track position and eventHandlers references by room title across renders
@@ -38,6 +41,7 @@ vi.mock("react-leaflet", () => ({
         data-interactive={String(interactive ?? true)}
         title={title}
         onClick={() => eventHandlers?.click?.()}
+        onKeyDown={(event) => eventHandlers?.keydown?.({ originalEvent: event.nativeEvent })}
       />
     );
   },
@@ -80,6 +84,25 @@ describe("RoomPins", () => {
     fireEvent.click(screen.getAllByTestId("marker")[1]);
 
     expect(onPinClick).toHaveBeenCalledWith(roomB);
+  });
+
+  it.each(["Enter", " "])("opens the room on the %j key, as a button would", (key) => {
+    const onPinClick = vi.fn();
+    render(<RoomPins rooms={[roomA, roomB]} onPinClick={onPinClick} />);
+
+    fireEvent.keyDown(screen.getAllByTestId("marker")[1], { key });
+
+    expect(onPinClick).toHaveBeenCalledTimes(1);
+    expect(onPinClick).toHaveBeenCalledWith(roomB);
+  });
+
+  it("ignores other keys", () => {
+    const onPinClick = vi.fn();
+    render(<RoomPins rooms={[roomA]} onPinClick={onPinClick} />);
+
+    fireEvent.keyDown(screen.getByTestId("marker"), { key: "Tab" });
+
+    expect(onPinClick).not.toHaveBeenCalled();
   });
 
   it("keeps position and eventHandlers references stable across re-renders", () => {
