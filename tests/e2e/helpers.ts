@@ -93,23 +93,27 @@ export async function openRoom(page: Page, room: Room): Promise<Locator> {
 
 type CatchUpProbe = { started: number; settled: number };
 declare global {
-  interface Window { __roomCatchUpProbe: CatchUpProbe }
+  interface Window { __roomCatchUpProbe: Record<string, CatchUpProbe> }
 }
 
 /**
  * Installs observation only: original fetch, status, body and failures pass through.
  * The task after JSON consumption lets the API/store promise continuations drain.
  * MessageChannel is deliberately independent of the paused timer/RAF clock.
+ * Keyed by room id (read from the URL, not passed in), so this can be armed before
+ * navigation even when the room doesn't exist yet (new-room design §10 scenario 1):
+ * every room's catch-up is tracked, and callers name the one they care about.
  */
-async function observeCatchUps(page: Page, roomId: string) {
-  await page.addInitScript((id) => {
-    const probe = { started: 0, settled: 0 };
-    window.__roomCatchUpProbe = probe;
+export async function observeCatchUps(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const probes: Record<string, { started: number; settled: number }> = {};
+    window.__roomCatchUpProbe = probes;
+    const entryFor = (id: string) => (probes[id] ??= { started: 0, settled: 0 });
     const originalFetch = window.fetch.bind(window);
-    const markSettled = () => {
+    const markSettled = (id: string) => {
       const channel = new MessageChannel();
       channel.port1.onmessage = () => {
-        probe.settled += 1;
+        entryFor(id).settled += 1;
         channel.port1.close();
         channel.port2.close();
       };
@@ -119,73 +123,76 @@ async function observeCatchUps(page: Page, roomId: string) {
       const input = args[0];
       const url = new URL(input instanceof Request ? input.url : String(input), location.href);
       const method = args[1]?.method ?? (input instanceof Request ? input.method : "GET");
-      const watched = method.toUpperCase() === "GET" &&
-        url.pathname === `/api/rooms/${id}/messages` && url.searchParams.has("after");
+      const match = /^\/api\/rooms\/([^/]+)\/messages$/.exec(url.pathname);
+      const watched = method.toUpperCase() === "GET" && match !== null && url.searchParams.has("after");
       if (!watched) return originalFetch(...args);
-      probe.started += 1; // before the real request: even a slow response cannot hide a tick
+      const id = match[1];
+      entryFor(id).started += 1; // before the real request: even a slow response cannot hide a tick
       try {
         const response = await originalFetch(...args);
         const originalJson = response.json.bind(response);
         response.json = async () => {
           try { return await originalJson(); }
-          finally { markSettled(); }
+          finally { markSettled(id); }
         };
         return response;
       } catch (error) {
-        markSettled();
+        markSettled(id);
         throw error;
       }
     };
-  }, roomId);
+  });
 }
 
-const probeOf = (page: Page) => page.evaluate(() => ({ ...window.__roomCatchUpProbe }));
+const probeOf = (page: Page, roomId: string): Promise<CatchUpProbe> =>
+  page.evaluate((id) => ({ ...(window.__roomCatchUpProbe[id] ?? { started: 0, settled: 0 }) }), roomId);
 
-async function waitForCatchUpIdle(page: Page, minimum: number) {
+/** Waits until this room's catch-up has actually settled in the page, not merely started. */
+export async function waitForCatchUpIdle(page: Page, roomId: string, minimum: number): Promise<void> {
   await expect.poll(async () => {
-    const probe = await probeOf(page);
+    const probe = await probeOf(page, roomId);
     return probe.settled >= minimum && probe.started === probe.settled;
   }).toBe(true);
 }
 
 /** Opens and settles the startup catch-up, then freezes time before scenario writes. */
 export async function openPollingRoom(page: Page, room: Room): Promise<Locator> {
-  await observeCatchUps(page, room.id);
+  await observeCatchUps(page);
   await page.clock.install();
   const log = await openRoom(page, room);
-  await waitForCatchUpIdle(page, 1);
+  await waitForCatchUpIdle(page, room.id, 1);
   // A future instant avoids pauseAt rejecting a timestamp already passed during the tool round trip.
   // If this crosses a tick, settle that request too, while no scenario writes exist yet.
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
-  await waitForCatchUpIdle(page, 1);
+  await waitForCatchUpIdle(page, room.id, 1);
   await page.clock.runFor(32); // render/ResizeObserver frames, not a network-completion sleep
-  await waitForCatchUpIdle(page, 1);
+  await waitForCatchUpIdle(page, room.id, 1);
   if (process.env.E2E_SLOW_SETUP === "1") {
-    const before = await probeOf(page);
+    const before = await probeOf(page, room.id);
     const at = await page.evaluate(() => Date.now());
     await nodeDelay(POLL_INTERVAL_MS + 1000); // deliberate adverse setup, runner time only
     expect(await page.evaluate(() => Date.now())).toBe(at);
-    expect(await probeOf(page)).toEqual(before);
+    expect(await probeOf(page, room.id)).toEqual(before);
   }
   return log;
 }
 
 /** One deliberate tick; wait for real JSON consumption before checking the rendered result. */
-export async function pollNow(page: Page): Promise<void> {
-  const before = await probeOf(page);
+export async function pollNow(page: Page, roomId: string): Promise<void> {
+  const before = await probeOf(page, roomId);
   expect(before.started).toBe(before.settled);
   await page.clock.fastForward(POLL_INTERVAL_MS);
-  await waitForCatchUpIdle(page, before.started + 1);
+  await waitForCatchUpIdle(page, roomId, before.started + 1);
   await page.clock.runFor(32);
 }
 
 /** No request may even start while backlog owns the cursor. */
-export async function expectNoCatchUp(page: Page): Promise<void> {
-  const before = await probeOf(page);
+export async function expectNoCatchUp(page: Page, roomId: string): Promise<void> {
+  const before = await probeOf(page, roomId);
   expect(before.started).toBe(before.settled);
   await page.clock.fastForward(POLL_INTERVAL_MS);
   await page.clock.runFor(32);
-  expect(await probeOf(page)).toEqual(before);
+  expect(await probeOf(page, roomId)).toEqual(before);
 }
 
 export const rows = (log: Locator) => log.getByRole("article");

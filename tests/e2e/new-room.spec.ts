@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Request } from "@playwright/test";
 
-import { POLL_INTERVAL_MS, clickEmptySpot, fillCompose, rows, type Message, type Room } from "./helpers";
+import { clickEmptySpot, fillCompose, observeCatchUps, pollNow, rows, waitForCatchUpIdle, type Message, type Room } from "./helpers";
 
 const INFO_TEXT = "This chatroom will receive a name after the first message is sent.";
 const MOVED_TEXT = "A chatroom already exists here, you have been moved to it. Your message has not been sent.";
@@ -46,6 +46,7 @@ async function pressCreate<T>(page: Page, status: number): Promise<T> {
 
 test("1. create a room and land in it, seeded", async ({ page }) => {
   const requests = watchMessageRequests(page);
+  await observeCatchUps(page); // armed before the room exists; keyed by id once Create answers
   await page.clock.install(); // before navigation, so the poll interval belongs to this clock
   await page.goto("/");
 
@@ -70,11 +71,12 @@ test("1. create a room and land in it, seeded", async ({ page }) => {
   await expect(page.getByLabel("Message")).toHaveValue("");
   await expect(page.getByTitle(room.name, { exact: true })).toBeVisible(); // the new pin
 
-  // Seeded: no history request, and catch-up starts from the first message.
-  await expect.poll(() => requests.gets(room.id).length).toBeGreaterThanOrEqual(1);
-  const beforeTick = requests.gets(room.id).length;
-  await page.clock.fastForward(POLL_INTERVAL_MS);
-  await expect.poll(() => requests.gets(room.id).length).toBeGreaterThan(beforeTick);
+  // Seeded: no history request, and catch-up starts from the first message. Wait for the
+  // seeded catch-up to settle (not merely start) before ticking, so the tick is never
+  // dropped for landing while a fetch is still in flight (feed reducer: a tick is ignored
+  // while `inflight !== null`).
+  await waitForCatchUpIdle(page, room.id, 1);
+  await pollNow(page, room.id);
   expect(new Set(requests.gets(room.id))).toEqual(new Set([message.id]));
   await expect(log.getByText(text, { exact: true })).toHaveCount(1);
 
