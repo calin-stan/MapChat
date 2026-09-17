@@ -47,3 +47,42 @@ Review evidence: inspected the installed Next 16.3.5 guides for native history a
 - Decision: Accepted
 - Implementation status: Implemented in plan
 - Implementation evidence: `docs/superpowers/plans/2026-09-17-chunk-12-shareable-room-url.md:135` specifies the guarded once-per-terminal-feed contract; `:910` adds the actual rerender helper; `:921` tests changed room/callback identities; `:940` tests supplying a callback later; `:990` implements the ref guard in the plan snippet. The isolated exact-snippet probe passed as described above; the product component is unchanged. Initial implementation evidence: None yet.
+
+## Execution evidence — Task 4 (2026-09-17)
+
+Task 4 (`tests/e2e/shared-room.spec.ts`) implemented and run from worktree `/Users/calin/dev/other/wp-worktrees/chunk-12-shareable-url`, branch `chunk-12-shareable-url`. Tasks 1–3 were already committed and reviewed; no product files were touched except for the two temporary, fully-reverted mutations in Step 2a below.
+
+**Server ownership (F-001).** Before the run batch: `lsof -nP -iTCP:3000 -sTCP:LISTEN -t` → PID 51179; `lsof -a -p 51179 -d cwd -Fn` → `n/Users/calin/dev/other/wp-worktrees/chunk-12-shareable-url`; `ps -o pid,ppid,command -p 51179` → `next-server (v16.3.5)`, parent PID 51172 = `node .../chunk-12-shareable-url/node_modules/.bin/../next/dist/bin/next dev -H 127.0.0.4`; `https://map-chat.map-chat.test/api/health` returned 200. Re-checked (same PID/cwd) immediately before the full-suite run in Step 3. `E2E_BASE_URL` was left unset throughout. No `pnpm test:api` / `pnpm test:db` process was running or run at any point.
+
+**Baseline.** `pnpm exec playwright test --list` before writing the spec: 30 tests in 4 files (verified via git history/prior task reports; not re-run against a pre-Task-4 tree since the file was additive only).
+
+**Spec written verbatim.** The spec text in the brief was used exactly as given (no deviation). `pnpm lint` and `pnpm typecheck` both passed against the verbatim text on the first try, including the inline `import("@playwright/test").Request` parameter type in `watchSelectionPageRequests` — no minimal-equivalent substitution was needed.
+
+**Step 2 — repeated run.** `pnpm test:e2e tests/e2e/shared-room.spec.ts --repeat-each=3` → **24 passed** (8 tests × 3 repeats), ~15.4s, no flakes.
+
+**Step 2a — mutation 1 (`useSelectionUrl` routes room→none through `useRouter().replace("/")`).**
+Edited `src/lib/page/selectionUrl.ts` to track the previous path in a `useRef` and call `router.replace("/")` on a room-to-none transition (opening still uses `replaceState`). After editing, warmed the dev server with two `curl` GETs to `https://map-chat.map-chat.test/` to let the hot reload land, then ran `pnpm test:e2e tests/e2e/shared-room.spec.ts -g "2. selection"`.
+Result: **2 failed** (both entries).
+- Entry "map": `expect(pageRequests.seen).toHaveLength(0)` failed — received `["https://map-chat.map-chat.test/?_rsc=..."]`, i.e. an RSC request to `/` was observed, exactly the request-based regression the finding (F-002) targets.
+- Entry "shared URL": `expect(pathOf(page)).toBe("/")` failed — received `/room/<id>` still in the URL right after the close click, because `router.replace` resolves asynchronously and had not yet committed when the assertion ran; this is a different failure line than entry "map" but is still caused by the mutation (routing through the router instead of a synchronous `replaceState`), and it still demonstrates the test rejects the regression for the shared-URL entry (the transition to a different route tree that the brief calls out).
+Restored `src/lib/page/selectionUrl.ts` to its original content; `git diff --stat src/` was empty afterward.
+
+**Step 2a — mutation 2 (`MapView` keyed by selection room id / "none" in `MapShell`).**
+Edited `src/components/map/MapShell.tsx` to add `key={selection.kind === "room" ? selection.room.id : "none"}` to the `<MapView>` element (the `useSelectionUrl` call was untouched). Warmed the dev server the same way, then ran the same scenario-2-only command.
+Result: **2 failed** (both entries), both on `expect(await originalControl.evaluate((element) => element.isConnected)).toBe(true)` → `Expected: true, Received: false` — the original zoom-control element handle was disconnected from the DOM after the keyed remount, exactly the "original map control disconnects with no page request" regression the finding calls for.
+Restored `src/components/map/MapShell.tsx` to its original content; `git diff --stat src/` was empty afterward.
+
+Both required mutations made scenario 2 fail on the first attempt for both entry routes (four failures total, one per entry per mutation), so no test strengthening was necessary and the two animation-frame wait plus the retained-identity/request-set assertions were not loosened.
+
+**Step 2a.3 — restored re-runs.** After restoring both files and re-warming the server: `pnpm test:e2e tests/e2e/shared-room.spec.ts -g "2. selection"` → **2 passed**; `pnpm test:e2e tests/e2e/shared-room.spec.ts` (full new spec, unmutated) → **8 passed**.
+
+**Step 3 — full suite.**
+- `pnpm exec playwright test --list | tail -1` → `Total: 38 tests in 5 files`.
+- Server ownership re-checked immediately before this run: same PID 51179, same cwd.
+- `pnpm test:e2e` → **38 passed** (26.2s), 0 failures, no test skipped.
+- `pnpm lint` → exit 0, no output (zero errors/warnings).
+- `pnpm typecheck` → `next typegen && tsc --noEmit`, "Types generated successfully", exit 0.
+
+**Files changed.** Only `tests/e2e/shared-room.spec.ts` (new file) and this feedback companion are part of the Task 4 commit. `git status --porcelain` at commit time showed no other modified or untracked files; the two Step 2a mutations were made and reverted in `src/`, confirmed clean via `git diff --stat src/` after each restore.
+
+**Self-review / concerns.** The spec matches the brief's text verbatim, so there is no independent-design risk to review beyond confirming the mutation checks actually exercise the intended failure paths, which they did. The one deviation from the brief's expected wording is cosmetic: mutation 1's "shared URL" entry failed on the `pathOf(page)` assertion rather than on `pageRequests.seen`/control-identity, because `router.replace` is asynchronous and the URL had not yet updated at assertion time; this is still a correct rejection of the reviewed regression and required no test changes. No other deviations, no flakes observed across the repeated run, the two mutation attempts, or the full suite.
