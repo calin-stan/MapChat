@@ -164,6 +164,29 @@ once using the latest viewport. Single map clicks place a draft after a 500 ms a
 double-clicks within that window cancel placement. Clicks outside valid world coordinates are ignored.
 The two Fiji seed rooms are visited separately at opposite edges of the single rendered world.
 
+## Room feed
+
+The client-side core of an open room (PRD 4 "History", 6.4, 6.7) is a pure reducer. The
+store that runs its effects and the React hook arrive with chunk 9; the realtime adapter
+with chunk 11. Design: `docs/superpowers/specs/2026-09-16-room-feed-design.md`.
+
+| Module                | Provides                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| `@/lib/feed/types`    | `FeedState`, `FeedAction`, `FeedEffect`, `FeedError`, `Connection`, `FetchOp`             |
+| `@/lib/feed/reducer`  | `initialFeedState(roomId)`, `feedReducer(state, action)` returning `[state, effects]`, `mergeMessages`, `connectionOf`, `EMPTY_HISTORY_MESSAGE` |
+
+`feedReducer` performs no I/O. It returns the next state plus an ordered list of effects
+(`fetchInitial`, `fetchOlder`, `fetchNewer`, `subscribe`, `unsubscribe`, `startPolling`,
+`stopPolling`, `startIdleTimer`, `stopIdleTimer`) for the caller to run after storing the
+state. An action the state does not accept returns the same state object and no effects.
+`messages` stays sorted by `compareCreatedAtId` and unique by id. `syncCursor` (the PRD 6.4
+bookmark) moves only on `newerLoaded`; `olderCursor` only on `historyLoaded` and
+`olderLoaded`; realtime events, POST responses and failures never move either. At most one
+fetch is in flight; a catch-up that cannot start is owed (`newerWanted`) and runs when the
+fetch settles. A 404 from any fetch is terminal: the reducer drops every transport and then
+ignores everything except `closed`. `connectionOf(state)` gives `realtime`, `polling` or
+`connecting` for display.
+
 ## Tests
 
 Unit tests live next to the code as `*.test.ts` and run in a Node environment. A component

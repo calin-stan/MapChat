@@ -941,3 +941,277 @@ describe("feedReducer failures and dismissal", () => {
     },
   ])("$name", (row) => check(row));
 });
+
+// ---------------------------------------------------------------------------
+// Scenarios: sequences from spec §5 "Edge cases", §9 (F-004) and PRD §8.
+// ---------------------------------------------------------------------------
+
+/** Folds `actions` over the reducer; returns the final state and each step's effects. */
+function run(start: FeedState, actions: FeedAction[]): { state: FeedState; effects: FeedEffect[][] } {
+  const effects: FeedEffect[][] = [];
+  const end = actions.reduce((current, action) => {
+    const [next, fx] = feedReducer(current, action);
+    effects.push(fx);
+    return next;
+  }, start);
+  return { state: end, effects };
+}
+
+describe("feedReducer scenarios", () => {
+  it("opens an existing room: history, subscribe, confirmation catch-up", () => {
+    const { state: end, effects } = run(state(), [
+      { type: "opened", hidden: false },
+      { type: "historyLoaded", page: page([m1, m2], true) },
+      { type: "subscribed" },
+      { type: "newerLoaded", page: catchUp([], m2.id, false) },
+    ]);
+    expect(effects).toEqual([[fetchInitial], [subscribe], [startIdleTimer, fetchNewer(m2.id)], []]);
+    expect(connectionOf(end)).toBe("realtime");
+    expect(end).toMatchObject({ status: "open", syncCursor: m2.id, olderCursor: m1.id, inflight: null });
+  });
+
+  it("falls back to polling when the subscription is refused, then polls on ticks", () => {
+    const { state: end, effects } = run(state(), [
+      { type: "opened", hidden: false },
+      { type: "historyLoaded", page: page([m1, m2], false) },
+      { type: "channelFailed", reason: "too_many_connections" },
+      { type: "newerLoaded", page: catchUp([], m2.id, false) },
+      { type: "pollTick" },
+      { type: "newerLoaded", page: catchUp([m3], m3.id, false) },
+      { type: "pollTick" },
+    ]);
+    expect(effects).toEqual([
+      [fetchInitial],
+      [subscribe],
+      [unsubscribe, stopIdleTimer, startPolling, fetchNewer(m2.id)],
+      [],
+      [fetchNewer(m2.id)],
+      [],
+      [fetchNewer(m3.id)],
+    ]);
+    expect(connectionOf(end)).toBe("polling");
+    expect(end.messages).toEqual([m1, m2, m3]);
+  });
+
+  it("a realtime message during a backlog is shown, the bookmark and notice stay", () => {
+    const { state: end, effects } = run(pollingRoom({ backlog: true }), [
+      { type: "received", message: m4 },
+      { type: "pollTick" },
+      { type: "newerRequested" },
+    ]);
+    expect(end.messages).toEqual([m1, m2, m4]);
+    expect(end).toMatchObject({ syncCursor: m2.id, backlog: true, inflight: "newer" });
+    expect(effects).toEqual([[], [], [fetchNewer(m2.id)]]);
+  });
+
+  it("A/B/C (PRD 6.4): displaying own post C never moves the bookmark past B", () => {
+    // Last fetch reached A (m1). Another visitor posts B (m2); this visitor posts C (m3).
+    const start = pollingRoom({ messages: [m1], olderCursor: m1.id, syncCursor: m1.id });
+    const { state: end, effects } = run(start, [
+      { type: "received", message: m3 },
+      { type: "pollTick" },
+      { type: "newerLoaded", page: catchUp([m2, m3], m3.id, false) },
+    ]);
+    expect(effects[1]).toEqual([fetchNewer(m1.id)]);
+    expect(end.messages).toEqual([m1, m2, m3]);
+    expect(end.syncCursor).toBe(m3.id);
+  });
+
+  it("idle during an older page: polling starts, the catch-up runs when the page lands", () => {
+    const { state: end, effects } = run(live({ inflight: "older" }), [
+      { type: "idle" },
+      { type: "olderLoaded", page: page([m0], false) },
+    ]);
+    expect(effects).toEqual([[unsubscribe, stopIdleTimer, startPolling], [fetchNewer(m2.id)]]);
+    expect(end).toMatchObject({ polling: true, channel: "none", newerWanted: false, inflight: "newer" });
+    expect(end.messages).toEqual([m0, m1, m2]);
+  });
+
+  it("subscribed during a poll: the owed catch-up runs from the poll's new bookmark", () => {
+    const { effects } = run(pollingRoom({ channel: "subscribing", inflight: "newer" }), [
+      { type: "subscribed" },
+      { type: "newerLoaded", page: catchUp([m3], m3.id, false) },
+    ]);
+    expect(effects).toEqual([[stopPolling, startIdleTimer], [fetchNewer(m3.id)]]);
+  });
+
+  it("sent twice while a re-subscribe is pending subscribes once", () => {
+    const { effects } = run(pollingRoom(), [{ type: "sent" }, { type: "sent" }]);
+    expect(effects).toEqual([[subscribe], []]);
+  });
+
+  it("two olderRequested before the page lands fetch once", () => {
+    const { effects } = run(live(), [{ type: "olderRequested" }, { type: "olderRequested" }]);
+    expect(effects).toEqual([[fetchOlder(m1.id)], []]);
+  });
+
+  it("a channel that drops after live use polls and re-subscribes only on send", () => {
+    const { state: end, effects } = run(live(), [
+      { type: "channelFailed", reason: "CLOSED" },
+      { type: "newerLoaded", page: catchUp([], m2.id, false) },
+      { type: "pollTick" },
+      { type: "newerLoaded", page: catchUp([m3], m3.id, false) },
+      { type: "sent" },
+    ]);
+    expect(effects.slice(0, 4).flat()).not.toContainEqual(subscribe);
+    expect(effects[4]).toEqual([subscribe]);
+    expect(end).toMatchObject({ channel: "subscribing", polling: true });
+  });
+
+  it("empty initial history is retried once, then errors with no cursor and no transport", () => {
+    const { state: end, effects } = run(state(), [
+      { type: "opened", hidden: false },
+      { type: "historyLoaded", page: page([], false) },
+      { type: "historyLoaded", page: page([], false) },
+    ]);
+    expect(effects).toEqual([[fetchInitial], [fetchInitial], []]);
+    expect(end).toMatchObject({
+      status: "opening",
+      syncCursor: null,
+      olderCursor: null,
+      inflight: null,
+      polling: false,
+      channel: "none",
+      error: { op: "initial", message: EMPTY_HISTORY_MESSAGE, notFound: false },
+    });
+  });
+
+  it("every action after closed is ignored", () => {
+    const closed = feedReducer(live(), { type: "closed" })[0];
+    const actions: FeedAction[] = [
+      { type: "opened", hidden: false },
+      { type: "historyLoaded", page: page([m3], false) },
+      { type: "olderRequested" },
+      { type: "olderLoaded", page: page([m0], false) },
+      { type: "newerRequested" },
+      { type: "pollTick" },
+      { type: "newerLoaded", page: catchUp([m3], m3.id, false) },
+      failed("newer"),
+      { type: "received", message: m3 },
+      { type: "sent" },
+      { type: "subscribed" },
+      { type: "channelFailed", reason: "CLOSED" },
+      { type: "idle" },
+      { type: "visibilityChanged", hidden: true },
+      { type: "errorDismissed" },
+      { type: "closed" },
+    ];
+    for (const action of actions) {
+      expect(feedReducer(closed, action)).toEqual([closed, []]);
+      expect(feedReducer(closed, action)[0]).toBe(closed);
+    }
+  });
+
+  it("F-004: a failed confirmation catch-up polls from the same bookmark and recovers", () => {
+    const { state: end, effects } = run(live({ channel: "subscribing" }), [
+      { type: "subscribed" },
+      failed("newer"),
+      { type: "pollTick" },
+      { type: "newerLoaded", page: catchUp([m3], m3.id, false) },
+    ]);
+    expect(effects).toEqual([
+      [startIdleTimer, fetchNewer(m2.id)],
+      [unsubscribe, stopIdleTimer, startPolling],
+      [fetchNewer(m2.id)],
+      [],
+    ]);
+    expect(end).toMatchObject({ channel: "none", polling: true, syncCursor: m3.id, error: null });
+    expect(end.messages).toEqual([m1, m2, m3]);
+  });
+
+  it("F-004: confirmation during an older page whose fetch then fails still runs the catch-up", () => {
+    const { state: end, effects } = run(live({ channel: "subscribing", inflight: "older" }), [
+      { type: "subscribed" },
+      failed("older"),
+      { type: "newerLoaded", page: catchUp([m3], m3.id, false) },
+    ]);
+    expect(effects).toEqual([[startIdleTimer], [fetchNewer(m2.id)], []]);
+    expect(end.error).toEqual(failure("older"));
+    expect(end).toMatchObject({ channel: "subscribed", syncCursor: m3.id, inflight: null });
+  });
+
+  it("F-004: a failed backlog page keeps the button and the cursor; ticks stay paused", () => {
+    const { state: end, effects } = run(pollingRoom({ backlog: true }), [
+      { type: "newerRequested" },
+      failed("newer"),
+      { type: "pollTick" },
+      { type: "newerRequested" },
+    ]);
+    expect(effects).toEqual([[fetchNewer(m2.id)], [], [], [fetchNewer(m2.id)]]);
+    expect(end).toMatchObject({ backlog: true, syncCursor: m2.id, error: failure("newer") });
+  });
+
+  it("F-004: a 404 is terminal; nothing restarts a transport or re-enables the feed", () => {
+    const { state: end, effects } = run(pollingRoom(), [
+      { type: "pollTick" },
+      { type: "fetchFailed", op: "newer", message: "gone", notFound: true },
+      { type: "pollTick" },
+      { type: "sent" },
+      { type: "newerRequested" },
+      { type: "errorDismissed" },
+      { type: "visibilityChanged", hidden: false },
+      { type: "closed" },
+    ]);
+    expect(effects).toEqual([
+      [fetchNewer(m2.id)],
+      [unsubscribe, stopIdleTimer, stopPolling],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [unsubscribe, stopPolling, stopIdleTimer],
+    ]);
+    expect(end).toMatchObject({ status: "closed", error: notFoundError });
+  });
+
+  it("PRD 8: only newerLoaded advances the bookmark", () => {
+    const steps: FeedAction[] = [
+      { type: "received", message: m4 },
+      { type: "olderRequested" },
+      { type: "olderLoaded", page: page([m0], false) },
+      { type: "pollTick" },
+      failed("newer"),
+    ];
+    const { state: unchanged } = run(pollingRoom(), steps);
+    expect(unchanged.syncCursor).toBe(m2.id);
+    const { state: advanced } = run(unchanged, [
+      { type: "pollTick" },
+      { type: "newerLoaded", page: catchUp([m3, m4], m4.id, false) },
+    ]);
+    expect(advanced.syncCursor).toBe(m4.id);
+    expect(advanced.messages).toEqual([m0, m1, m2, m3, m4]);
+  });
+
+  it("F-003: hiding during opening selects polling when history lands", () => {
+    const { state: end, effects } = run(state(), [
+      { type: "opened", hidden: false },
+      { type: "visibilityChanged", hidden: true },
+      { type: "historyLoaded", page: page([m1, m2], false) },
+    ]);
+    expect(effects).toEqual([[fetchInitial], [], [startPolling, fetchNewer(m2.id)]]);
+    expect(end).toMatchObject({ hidden: true, polling: true, channel: "none" });
+  });
+
+  it("F-003: hiding during the join makes a late confirmation harmless", () => {
+    const { state: end, effects } = run(live({ channel: "subscribing" }), [
+      { type: "visibilityChanged", hidden: true },
+      { type: "subscribed" },
+      { type: "visibilityChanged", hidden: false },
+      { type: "sent" },
+    ]);
+    expect(effects).toEqual([
+      [unsubscribe, stopIdleTimer, startPolling, fetchNewer(m2.id)],
+      [],
+      [],
+      [subscribe],
+    ]);
+    expect(end).toMatchObject({ hidden: false, polling: true, channel: "subscribing" });
+  });
+
+  it("F-003: a seeded room opened while hidden polls at once", () => {
+    const { state: end, effects } = run(state(), [{ type: "opened", hidden: true, seed: m1 }]);
+    expect(effects).toEqual([[startPolling, fetchNewer(m1.id)]]);
+    expect(end).toMatchObject({ status: "open", channel: "none", polling: true, syncCursor: m1.id });
+  });
+});
