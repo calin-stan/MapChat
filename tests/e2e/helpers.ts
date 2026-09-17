@@ -190,6 +190,8 @@ export const REALTIME_IDLE_TIMEOUT_MS = 180_000;
  * Opens with realtime allowed: waits for the confirmed channel and settles its
  * catch-up, then freezes time, so no poll or idle timeout fires unless a test
  * advances the clock. The websocket transport stays real; SDK heartbeat and timeout timers follow the controlled clock.
+ * Each clock jump fires the SDK heartbeat, and a jump before the previous heartbeat's reply arrives would make
+ * realtime-js close the socket for a heartbeat timeout, so scenarios leave real time between jumps.
  */
 export async function openLiveRoom(page: Page, room: Room): Promise<Locator> {
   await observeCatchUps(page, room.id);

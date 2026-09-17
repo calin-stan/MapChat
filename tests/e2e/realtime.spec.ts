@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type Locator, type WebSocket } from "@playwright/test";
 
 import {
   connectionOf,
@@ -117,4 +117,45 @@ test("6. reader scrolling postpones idle, then inactivity still leaves", async (
   await page.clock.fastForward(60_000); // past the original deadline
   await expect(connectionOf(page)).toHaveAttribute("data-connection", "realtime");
   await goIdle(page); // no more input: the restarted timeout still expires
+});
+
+test("7. a send after the websocket has closed rejoins over a new connection", async ({ page, request }) => {
+  const { room } = await createRoom(request);
+  const sockets: WebSocket[] = [];
+  page.on("websocket", (ws) => {
+    if (ws.url().includes("/realtime/v1/websocket")) sockets.push(ws);
+  });
+  const log = await openLiveRoom(page, room);
+  expect(sockets).toHaveLength(1);
+  const first = sockets[0];
+  expect(first.isClosed()).toBe(false);
+
+  await goIdle(page); // asserts "polling" and one immediate catch-up
+  expect(first.isClosed()).toBe(false); // the SDK defers the disconnect after the last channel leaves
+
+  // Past supabase-js's deferred disconnect (2 × 25 s heartbeat after the channel left).
+  const beforeClose = await settledCatchUps(page);
+  const closed = first.isClosed() ? Promise.resolve() : first.waitForEvent("close");
+  await page.clock.fastForward(55_000);
+  await closed;
+  expect(first.isClosed()).toBe(true);
+  expect(sockets).toHaveLength(1); // a client-side disconnect: nothing reconnects by itself
+  await waitForCatchUpIdle(page, beforeClose + 1); // the jump crossed one poll tick
+  await page.clock.runFor(32);
+  await expect(connectionOf(page)).toHaveAttribute("data-connection", "polling");
+
+  const beforeSend = await settledCatchUps(page);
+  await fillCompose(page, "ann", "after the close");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(connectionOf(page)).toHaveAttribute("data-connection", "realtime");
+  await expect(row(log, "after the close")).toHaveCount(1);
+  expect(sockets).toHaveLength(2);
+  expect(sockets[1].isClosed()).toBe(false);
+
+  // Live over the new socket: settle the confirmation catch-up, then a row arrives with no request.
+  await waitForCatchUpIdle(page, beforeSend + 1);
+  const before = await settledCatchUps(page);
+  await postMessage(request, room.id, { author: "bob", text: "live after the close" });
+  await expect(row(log, "live after the close")).toHaveCount(1);
+  expect(await settledCatchUps(page)).toBe(before);
 });
