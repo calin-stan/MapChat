@@ -32,7 +32,7 @@ export type FeedState = {
   olderCursor: string | null;
   /** hasMore of that page. */
   hasOlder: boolean;
-  /** PRD 6.4 synchronization bookmark; only `newerLoaded` moves it. */
+  /** PRD 6.4 synchronization bookmark; set on open, then only `newerLoaded` moves it. */
   syncCursor: string | null;
   /** The last catch-up said hasMore; periodic catch-up is paused. */
   backlog: boolean;

@@ -179,9 +179,10 @@ with chunk 11. Design: `docs/superpowers/specs/2026-09-16-room-feed-design.md`.
 (`fetchInitial`, `fetchOlder`, `fetchNewer`, `subscribe`, `unsubscribe`, `startPolling`,
 `stopPolling`, `startIdleTimer`, `stopIdleTimer`) for the caller to run after storing the
 state. An action the state does not accept returns the same state object and no effects.
-`messages` stays sorted by `compareCreatedAtId` and unique by id. `syncCursor` (the PRD 6.4
-bookmark) moves only on `newerLoaded`; `olderCursor` only on `historyLoaded` and
-`olderLoaded`; realtime events, POST responses and failures never move either. At most one
+`messages` stays sorted by `compareCreatedAtId` and unique by id. Both cursors are set when
+the room opens, from the initial history page or the creation seed. After that, `syncCursor`
+(the PRD 6.4 bookmark) moves only on `newerLoaded` and `olderCursor` only on `olderLoaded`;
+realtime events, POST responses and failures never move either. At most one
 fetch is in flight; a catch-up that cannot start is owed (`newerWanted`) and runs when the
 fetch settles. A 404 from any fetch is terminal: the reducer drops every transport and then
 ignores everything except `closed`. `connectionOf(state)` gives `realtime`, `polling` or
