@@ -93,23 +93,27 @@ export async function openRoom(page: Page, room: Room): Promise<Locator> {
 
 type CatchUpProbe = { started: number; settled: number };
 declare global {
-  interface Window { __roomCatchUpProbe: CatchUpProbe }
+  interface Window { __roomCatchUpProbe: Record<string, CatchUpProbe> }
 }
 
 /**
  * Installs observation only: original fetch, status, body and failures pass through.
  * The task after JSON consumption lets the API/store promise continuations drain.
  * MessageChannel is deliberately independent of the paused timer/RAF clock.
+ * Keyed by room id (read from the URL, not passed in), so this can be armed before
+ * navigation even when the room doesn't exist yet (new-room design §10 scenario 1):
+ * every room's catch-up is tracked, and callers name the one they care about.
  */
-async function observeCatchUps(page: Page, roomId: string) {
-  await page.addInitScript((id) => {
-    const probe = { started: 0, settled: 0 };
-    window.__roomCatchUpProbe = probe;
+export async function observeCatchUps(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const probes: Record<string, { started: number; settled: number }> = {};
+    window.__roomCatchUpProbe = probes;
+    const entryFor = (id: string) => (probes[id] ??= { started: 0, settled: 0 });
     const originalFetch = window.fetch.bind(window);
-    const markSettled = () => {
+    const markSettled = (id: string) => {
       const channel = new MessageChannel();
       channel.port1.onmessage = () => {
-        probe.settled += 1;
+        entryFor(id).settled += 1;
         channel.port1.close();
         channel.port2.close();
       };
@@ -119,32 +123,34 @@ async function observeCatchUps(page: Page, roomId: string) {
       const input = args[0];
       const url = new URL(input instanceof Request ? input.url : String(input), location.href);
       const method = args[1]?.method ?? (input instanceof Request ? input.method : "GET");
-      const watched = method.toUpperCase() === "GET" &&
-        url.pathname === `/api/rooms/${id}/messages` && url.searchParams.has("after");
+      const match = /^\/api\/rooms\/([^/]+)\/messages$/.exec(url.pathname);
+      const watched = method.toUpperCase() === "GET" && match !== null && url.searchParams.has("after");
       if (!watched) return originalFetch(...args);
-      probe.started += 1; // before the real request: even a slow response cannot hide a tick
+      const id = match[1];
+      entryFor(id).started += 1; // before the real request: even a slow response cannot hide a tick
       try {
         const response = await originalFetch(...args);
         const originalJson = response.json.bind(response);
         response.json = async () => {
           try { return await originalJson(); }
-          finally { markSettled(); }
+          finally { markSettled(id); }
         };
         return response;
       } catch (error) {
-        markSettled();
+        markSettled(id);
         throw error;
       }
     };
-  }, roomId);
+  });
 }
 
-const probeOf = (page: Page) => page.evaluate(() => ({ ...window.__roomCatchUpProbe }));
+const probeOf = (page: Page, roomId: string): Promise<CatchUpProbe> =>
+  page.evaluate((id) => ({ ...(window.__roomCatchUpProbe[id] ?? { started: 0, settled: 0 }) }), roomId);
 
-/** At least `minimum` catch-up requests have started, and every started one has settled. */
-export async function waitForCatchUpIdle(page: Page, minimum: number) {
+/** Waits until this room's catch-up has actually settled in the page, not merely started. */
+export async function waitForCatchUpIdle(page: Page, roomId: string, minimum: number): Promise<void> {
   await expect.poll(async () => {
-    const probe = await probeOf(page);
+    const probe = await probeOf(page, roomId);
     return probe.settled >= minimum && probe.started === probe.settled;
   }).toBe(true);
 }
@@ -163,23 +169,23 @@ export const connectionOf = (page: Page) => page.locator("[data-connection]");
 /** Opens with realtime refused and settles the startup catch-up, then freezes time before scenario writes. */
 export async function openPollingRoom(page: Page, room: Room): Promise<Locator> {
   await refuseRealtime(page);
-  await observeCatchUps(page, room.id);
+  await observeCatchUps(page);
   await page.clock.install();
   const log = await openRoom(page, room);
   await expect(connectionOf(page)).toHaveAttribute("data-connection", "polling");
-  await waitForCatchUpIdle(page, 1);
+  await waitForCatchUpIdle(page, room.id, 1);
   // A future instant avoids pauseAt rejecting a timestamp already passed during the tool round trip.
   // If this crosses a tick, settle that request too, while no scenario writes exist yet.
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
-  await waitForCatchUpIdle(page, 1);
+  await waitForCatchUpIdle(page, room.id, 1);
   await page.clock.runFor(32); // render/ResizeObserver frames, not a network-completion sleep
-  await waitForCatchUpIdle(page, 1);
+  await waitForCatchUpIdle(page, room.id, 1);
   if (process.env.E2E_SLOW_SETUP === "1") {
-    const before = await probeOf(page);
+    const before = await probeOf(page, room.id);
     const at = await page.evaluate(() => Date.now());
     await nodeDelay(POLL_INTERVAL_MS + 1000); // deliberate adverse setup, runner time only
     expect(await page.evaluate(() => Date.now())).toBe(at);
-    expect(await probeOf(page)).toEqual(before);
+    expect(await probeOf(page, room.id)).toEqual(before);
   }
   return log;
 }
@@ -194,48 +200,48 @@ export const REALTIME_IDLE_TIMEOUT_MS = 180_000;
  * realtime-js close the socket for a heartbeat timeout, so scenarios leave real time between jumps.
  */
 export async function openLiveRoom(page: Page, room: Room): Promise<Locator> {
-  await observeCatchUps(page, room.id);
+  await observeCatchUps(page);
   await page.clock.install();
   const log = await openRoom(page, room);
   await expect(connectionOf(page)).toHaveAttribute("data-connection", "realtime");
-  await waitForCatchUpIdle(page, 1); // the confirmation catch-up
+  await waitForCatchUpIdle(page, room.id, 1); // the confirmation catch-up
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
   await page.clock.runFor(32);
   return log;
 }
 
-/** Catch-up requests started so far; all of them have settled. */
-export async function settledCatchUps(page: Page): Promise<number> {
-  const probe = await probeOf(page);
+/** This room's catch-up requests started so far; all of them have settled. */
+export async function settledCatchUps(page: Page, roomId: string): Promise<number> {
+  const probe = await probeOf(page, roomId);
   expect(probe.started).toBe(probe.settled);
   return probe.started;
 }
 
 /** The idle timeout fires: the room leaves realtime and polls at once. */
-export async function goIdle(page: Page): Promise<void> {
-  const before = await settledCatchUps(page);
+export async function goIdle(page: Page, roomId: string): Promise<void> {
+  const before = await settledCatchUps(page, roomId);
   await page.clock.fastForward(REALTIME_IDLE_TIMEOUT_MS);
   await expect(connectionOf(page)).toHaveAttribute("data-connection", "polling");
-  await waitForCatchUpIdle(page, before + 1);
+  await waitForCatchUpIdle(page, roomId, before + 1);
   await page.clock.runFor(32);
 }
 
 /** One deliberate tick; wait for real JSON consumption before checking the rendered result. */
-export async function pollNow(page: Page): Promise<void> {
-  const before = await probeOf(page);
+export async function pollNow(page: Page, roomId: string): Promise<void> {
+  const before = await probeOf(page, roomId);
   expect(before.started).toBe(before.settled);
   await page.clock.fastForward(POLL_INTERVAL_MS);
-  await waitForCatchUpIdle(page, before.started + 1);
+  await waitForCatchUpIdle(page, roomId, before.started + 1);
   await page.clock.runFor(32);
 }
 
 /** No request may even start while backlog owns the cursor. */
-export async function expectNoCatchUp(page: Page): Promise<void> {
-  const before = await probeOf(page);
+export async function expectNoCatchUp(page: Page, roomId: string): Promise<void> {
+  const before = await probeOf(page, roomId);
   expect(before.started).toBe(before.settled);
   await page.clock.fastForward(POLL_INTERVAL_MS);
   await page.clock.runFor(32);
-  expect(await probeOf(page)).toEqual(before);
+  expect(await probeOf(page, roomId)).toEqual(before);
 }
 
 export const rows = (log: Locator) => log.getByRole("article");
@@ -264,4 +270,95 @@ export const pill = (page: Page) => page.getByRole("button", { name: "New messag
 export async function fillCompose(page: Page, author: string, text: string): Promise<void> {
   await page.getByLabel("Display name").fill(author);
   await page.getByLabel("Message").fill(text);
+}
+
+const NEW_ROOM_HINT = /Your first message creates a chatroom at (-?\d+\.\d{6}), (-?\d+\.\d{6})\./;
+
+/**
+ * Pixels of the opening view (1280 × 720, initial props centre 46.7712, 23.6236,
+ * zoom 2) that a test may click. Measured with a throwaway script that clicked
+ * pixels and read the draft hint's coordinates (2026-09-17): at zoom 2 the world
+ * is 1024 px wide (256 × 2^2), narrower than the 1280 px viewport, so `MapView`'s
+ * `maxBounds`/`maxBoundsViscosity={1}` recentre the map horizontally — the
+ * rendered centre is lng ≈ 0, not 23.6236, and the single world copy spans
+ * x ∈ [128, 1152] (x=128 measured lng −180, x=1152 measured lng +180). The
+ * viewport is taller than 720, though, so the vertical centre is unaffected
+ * (measured lat ≈ 46.77 at y=360, matching the prop). `minX` stays well clear
+ * of the world edge (a raw lng like −179.9999997 rounds to −180.000000, and the
+ * ±0.0000005° bbox below would then get a 400) and `maxX` stays left of the
+ * panel slot (`PanelSlot` is `w-96` with `right-4`, i.e. x ∈ [880, 1264]).
+ */
+const CLICK_AREA = { minX: 160, maxX: 860, minY: 120, maxY: 600 };
+/**
+ * Where ROOM_REGION (lat 40–50, lng 0–10) and its pins are drawn; fixture rooms
+ * pile up there, so it is skipped. Measured the same way: at this view lng 0–10
+ * is x ≈ 640–668 and lat 40–50 is y ≈ 346–386, widened for the pin width (24–28 px,
+ * centred on the point) and, above, for a pin's height (up to 42 px for the
+ * selected variant, drawn upward from the point).
+ */
+const FIXTURE_PIXELS = { minX: 610, maxX: 700, minY: 290, maxY: 410 };
+
+const randomInt = (min: number, max: number) => Math.floor(min + Math.random() * (max - min + 1));
+
+/**
+ * Places the draft pin on a spot where no room exists and returns the
+ * coordinates shown in the popup's hint (the ones the server will store).
+ * Rooms accumulate in the local database across runs, so nothing here depends
+ * on a clean map: a click that opens an older room, lands in ROOM_REGION or
+ * hits coordinates that already have a room is retried elsewhere.
+ * Expects the map page with no panel open.
+ */
+export async function clickEmptySpot(page: Page): Promise<{ lat: number; lng: number }> {
+  await expect(page.getByRole("button", { name: "Zoom in" })).toBeVisible(); // Leaflet has mounted
+  const hint = page.getByText(NEW_ROOM_HINT);
+  const send = page.getByRole("button", { name: "Send" });
+  // exact: an accumulated room's random name occasionally contains "close" (e.g.
+  // "closed-gray-gibbon"), whose pin is also a role=button and would otherwise
+  // match this substring search while its own panel is open underneath.
+  const close = page.getByRole("button", { name: "Close", exact: true });
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const x = randomInt(CLICK_AREA.minX, CLICK_AREA.maxX);
+    const y = randomInt(CLICK_AREA.minY, CLICK_AREA.maxY);
+    const inFixturePixels =
+      x >= FIXTURE_PIXELS.minX && x <= FIXTURE_PIXELS.maxX && y >= FIXTURE_PIXELS.minY && y <= FIXTURE_PIXELS.maxY;
+    if (inFixturePixels) continue;
+
+    await page.mouse.click(x, y);
+    // The draft appears after the map's 500 ms double-click window; a pin opens its room at once.
+    // Nothing at all means the click came before the map listened (its handlers attach just
+    // after the zoom control shows): try again rather than fail.
+    const appeared = await hint
+      .or(send)
+      .waitFor({ state: "visible", timeout: 3_000 })
+      .then(() => true, () => false);
+    if (!appeared) continue;
+    if (await send.isVisible()) {
+      await close.click(); // landed on an older pin
+      continue;
+    }
+
+    const match = NEW_ROOM_HINT.exec(await hint.innerText());
+    if (match === null) throw new Error("clickEmptySpot: the hint has no coordinates");
+    const lat = Number(match[1]);
+    const lng = Number(match[2]);
+    const half = 0.0000005;
+    const inRegion =
+      (lat >= ROOM_REGION.minLat - 1 && lat <= ROOM_REGION.maxLat + 1 &&
+        lng >= ROOM_REGION.minLng - 1 && lng <= ROOM_REGION.maxLng + 1) ||
+      lat - half < -90 || lat + half > 90 || lng - half < -180 || lng + half > 180; // a bbox this close to the world edge would fail the API's own range validation
+    if (!inRegion) {
+      const bbox = [lng - half, lat - half, lng + half, lat + half].map((n) => n.toFixed(7)).join(",");
+      const response = await page.request.get(`/api/rooms?bbox=${bbox}`);
+      expect(response.status(), await response.text()).toBe(200);
+      const { rooms } = (await response.json()) as { rooms: Room[] };
+      if (rooms.length === 0) return { lat, lng };
+    }
+
+    await close.click(); // taken, reserved or at the world edge: start the next attempt from the greeting
+    await expect(hint).toBeHidden();
+  }
+  throw new Error(
+    "clickEmptySpot: no free spot after 10 attempts. The local map is crowded; if its data is disposable, run `pnpm db:reset`.",
+  );
 }

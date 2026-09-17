@@ -95,7 +95,7 @@ test("3. an incoming message at the bottom is followed without a pill", async ({
   await expectAtBottom(log);
 
   await postMessage(request, room.id, { author: "other", text: "incoming one" });
-  await pollNow(page);
+  await pollNow(page, room.id);
 
   await expect(row(log, "incoming one")).toBeInViewport();
   await expectAtBottom(log);
@@ -109,7 +109,7 @@ test("4. an incoming message while scrolled up shows the pill and keeps scrollTo
   const before = await scrollTopOf(log);
 
   await postMessage(request, room.id, { author: "other", text: "incoming two" });
-  await pollNow(page);
+  await pollNow(page, room.id);
 
   await expect(pill(page)).toBeVisible();
   expect(await scrollTopOf(log)).toBe(before);
@@ -136,7 +136,7 @@ test.describe("5. send", () => {
     expect(twoLines!.height).toBeGreaterThan(oneLine!.height * 1.5); // pre-wrap in real layout
 
     await postMessage(request, room.id, { author: "other", text: "poll completion witness" });
-    await pollNow(page);
+    await pollNow(page, room.id);
     await expect(row(log, "poll completion witness")).toHaveCount(1);
     await expect(rows(log)).toHaveCount(4);
     await expect(sent).toHaveCount(1);
@@ -168,11 +168,11 @@ test("6. a backlog pauses polling until Load more messages drains it", async ({ 
   await expect(rows(log)).toHaveCount(5);
   await postMessages(request, room.id, 105, { prefix: "backlog" });
 
-  await pollNow(page);
+  await pollNow(page, room.id);
   await expect(page.getByText("More messages are available")).toBeVisible();
   await expect(rows(log)).toHaveCount(105);
 
-  await expectNoCatchUp(page); // observe absence of a room-specific after request
+  await expectNoCatchUp(page, room.id); // observe absence of a room-specific after request
   await expect(rows(log)).toHaveCount(105);
 
   await expectAtBottom(log);
@@ -229,7 +229,7 @@ test.describe("8. interior catch-up and manual backlog", () => {
     await send(page, "ann", "own C");
     await expect(row(log, "interior B")).toHaveCount(0);
 
-    await pollNow(page);
+    await pollNow(page, room.id);
 
     await expect(row(log, "interior B")).toBeVisible();
     expect(await topOf(row(log, "interior B"))).toBeLessThan(await topOf(row(log, "own C")));
@@ -245,7 +245,7 @@ test.describe("8. interior catch-up and manual backlog", () => {
     await scrollUpInsideOwnC(log);
     const before = await topOf(ownC(log));
 
-    await pollNow(page);
+    await pollNow(page, room.id);
 
     await expect(row(log, "interior B")).toHaveCount(1); // inserted above the row being read
     await expect(pill(page)).toBeVisible();
@@ -257,7 +257,7 @@ test.describe("8. interior catch-up and manual backlog", () => {
     const log = await openPollingRoom(page, room);
     await postMessages(request, room.id, 105, { prefix: "backlog" });
     await send(page, "ann", OWN_C); // displayed last, ahead of the bookmark
-    await pollNow(page);
+    await pollNow(page, room.id);
     await expect(page.getByText("More messages are available")).toBeVisible();
     await expect(rows(log)).toHaveCount(104); // 3 + own C + the first 100 of the backlog
     await expect(rows(log).last()).toContainText("own C line 01");
@@ -340,14 +340,16 @@ test.describe("10. bounded compose layout", () => {
     expect(sentText).toBe(LONG_DRAFT);
   });
 
-  test("fetch alert, backlog notice and compose error fit together with the long draft", async ({ page }) => {
+  test("moved notice, fetch alert, backlog notice and compose error fit together with the long draft", async ({ page }) => {
     await page.goto("/e2e/room-panel-layout");
+    await expect(page.getByText("A chatroom already exists here, you have been moved to it.")).toBeVisible();
     await page.getByRole("button", { name: "Load more messages" }).click();
     await expect(page.getByText("Use Load more messages to retry.")).toBeVisible();
     await fillCompose(page, "ann", LONG_DRAFT);
     await page.getByRole("button", { name: "Send" }).click();
     await expect(page.getByText(/Couldn't send\./)).toBeVisible();
     await expect(page.getByText("More messages are available")).toBeVisible();
+    await expect(page.getByText("A chatroom already exists here, you have been moved to it.")).toBeVisible();
 
     await expectBoundedLayout(page);
   });
