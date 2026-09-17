@@ -278,17 +278,20 @@ export async function clickEmptySpot(page: Page): Promise<{ lat: number; lng: nu
     if (match === null) throw new Error("clickEmptySpot: the hint has no coordinates");
     const lat = Number(match[1]);
     const lng = Number(match[2]);
-    const inRegion =
-      lat >= ROOM_REGION.minLat - 1 && lat <= ROOM_REGION.maxLat + 1 &&
-      lng >= ROOM_REGION.minLng - 1 && lng <= ROOM_REGION.maxLng + 1;
     const half = 0.0000005;
-    const bbox = [lng - half, lat - half, lng + half, lat + half].map((n) => n.toFixed(7)).join(",");
-    const response = await page.request.get(`/api/rooms?bbox=${bbox}`);
-    expect(response.status(), await response.text()).toBe(200);
-    const { rooms } = (await response.json()) as { rooms: Room[] };
-    if (!inRegion && rooms.length === 0) return { lat, lng };
+    const inRegion =
+      (lat >= ROOM_REGION.minLat - 1 && lat <= ROOM_REGION.maxLat + 1 &&
+        lng >= ROOM_REGION.minLng - 1 && lng <= ROOM_REGION.maxLng + 1) ||
+      lat - half < -90 || lat + half > 90 || lng - half < -180 || lng + half > 180; // a bbox this close to the world edge would fail the API's own range validation
+    if (!inRegion) {
+      const bbox = [lng - half, lat - half, lng + half, lat + half].map((n) => n.toFixed(7)).join(",");
+      const response = await page.request.get(`/api/rooms?bbox=${bbox}`);
+      expect(response.status(), await response.text()).toBe(200);
+      const { rooms } = (await response.json()) as { rooms: Room[] };
+      if (rooms.length === 0) return { lat, lng };
+    }
 
-    await close.click(); // taken or reserved: start the next attempt from the greeting
+    await close.click(); // taken, reserved or at the world edge: start the next attempt from the greeting
     await expect(hint).toBeHidden();
   }
   throw new Error(
