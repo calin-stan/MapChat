@@ -274,6 +274,23 @@ test.describe("8. interior catch-up and manual backlog", () => {
   });
 });
 
+test("9. rows added above and below in one commit keep the visible row in place", async ({ page }) => {
+  await page.goto("/e2e/message-list");
+  const log = page.getByRole("log");
+  await expect(rows(log)).toHaveCount(30);
+  await row(log, "fixture message 25").scrollIntoViewIfNeeded();
+  await scrollListTo(log, (await scrollTopOf(log)) - 30);
+  const anchor = row(log, "fixture message 25");
+  await expect(anchor).toBeInViewport();
+  const before = await topOf(anchor);
+
+  await page.getByRole("button", { name: "Add rows above and below" }).click();
+
+  await expect(rows(log)).toHaveCount(50);
+  await expectSameTop(anchor, before);
+  await expect(pill(page)).toBeVisible();
+});
+
 test.describe("10. bounded compose layout", () => {
   // 120 lines of 24 characters and 119 newlines: 2999 code points.
   const LONG_DRAFT = Array.from(
@@ -321,5 +338,17 @@ test.describe("10. bounded compose layout", () => {
     await expect(rows(log)).toHaveCount(31);
     const sentText = await rows(log).last().getByRole("paragraph").nth(1).innerText();
     expect(sentText).toBe(LONG_DRAFT);
+  });
+
+  test("fetch alert, backlog notice and compose error fit together with the long draft", async ({ page }) => {
+    await page.goto("/e2e/room-panel-layout");
+    await page.getByRole("button", { name: "Load more messages" }).click();
+    await expect(page.getByText("Use Load more messages to retry.")).toBeVisible();
+    await fillCompose(page, "ann", LONG_DRAFT);
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText(/Couldn't send\./)).toBeVisible();
+    await expect(page.getByText("More messages are available")).toBeVisible();
+
+    await expectBoundedLayout(page);
   });
 });
