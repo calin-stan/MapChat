@@ -3,7 +3,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { FaSpinner, FaTimes } from "react-icons/fa";
 
-import { ComposeForm } from "@/components/compose/ComposeForm";
+import { BOUNDED_TEXTAREA_CLASS, ComposeForm } from "@/components/compose/ComposeForm";
 import { PanelFrame } from "@/components/panel/PanelFrame";
 import { BacklogNotice } from "@/components/room/BacklogNotice";
 import { MessageList, type MessageListHandle } from "@/components/room/MessageList";
@@ -34,12 +34,6 @@ export const LOAD_FAILED_HINT = "Couldn't load this room. Close it and open it a
 export const OLDER_FAILED = "Couldn't load older messages. Try again.";
 export const NEWER_FAILED = "Couldn't check for new messages. Retrying automatically.";
 export const NEWER_FAILED_BACKLOG = "Couldn't check for new messages. Use Load more messages to retry.";
-
-/**
- * A fixed 64 px message field that scrolls inside itself (room-panel design
- * §4.1), so a long draft never pushes Send or the list out of the panel.
- */
-const TEXTAREA_CLASS = "field-sizing-fixed h-16 resize-none overflow-y-auto";
 
 function fetchAlertText(error: FeedError, backlog: boolean): string {
   if (error.op === "older") return OLDER_FAILED;
@@ -143,7 +137,7 @@ export function RoomPanel({ room, seed, prefill, onClose, feedDeps }: RoomPanelP
               disabled={!feed.ready}
               initialAuthor={prefill?.author ?? name}
               initialText={prefill?.text}
-              textareaClassName={TEXTAREA_CLASS}
+              textareaClassName={BOUNDED_TEXTAREA_CLASS}
               onSubmit={submit}
             />
           </div>

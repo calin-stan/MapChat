@@ -38,8 +38,12 @@ export function toComposeErrors(issues: FieldIssue[]): ComposeErrors {
   return errors;
 }
 
-/** Errors to show after `onSubmit` rejected. Never empty. */
-export function submitErrors(error: unknown): ComposeErrors {
+/**
+ * Errors to show after `onSubmit` rejected. Never empty. `fallback` is the
+ * form-level line for a rejection that is neither a validation error nor
+ * `unavailable`: the write may or may not have happened.
+ */
+export function submitErrors(error: unknown, fallback: string = SUBMIT_FAILED_MESSAGE): ComposeErrors {
   if (isValidationError(error)) {
     const errors = toComposeErrors(error.fields);
     return Object.keys(errors).length > 0 ? errors : { form: error.message || "Invalid input" };
@@ -50,5 +54,5 @@ export function submitErrors(error: unknown): ComposeErrors {
     // server's message says what to do.
     if (code === "unavailable" && error.message) return { form: error.message };
   }
-  return { form: SUBMIT_FAILED_MESSAGE };
+  return { form: fallback };
 }

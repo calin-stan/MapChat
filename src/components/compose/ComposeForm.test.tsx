@@ -280,3 +280,130 @@ describe("ComposeForm counters", () => {
     expect(screen.getByText("1 character left")).toBeInTheDocument();
   });
 });
+
+describe("ComposeForm autoFocusField", () => {
+  it("focuses the named field on mount when the form is enabled", () => {
+    const { text } = setup({ autoFocusField: "text" });
+    expect(text()).toHaveFocus();
+  });
+
+  it("can focus the name field instead", () => {
+    const { author } = setup({ autoFocusField: "author" });
+    expect(author()).toHaveFocus();
+  });
+
+  it("waits for the first enable when mounted disabled, then never focuses again", async () => {
+    const { user, onSubmit, rerender, author, text } = setup({ autoFocusField: "text", disabled: true });
+    expect(text()).not.toHaveFocus();
+
+    rerender(<ComposeForm initialAuthor="" onSubmit={onSubmit} autoFocusField="text" />);
+    expect(text()).toHaveFocus();
+
+    await user.click(author());
+    rerender(<ComposeForm initialAuthor="" onSubmit={onSubmit} autoFocusField="text" disabled />);
+    rerender(<ComposeForm initialAuthor="" onSubmit={onSubmit} autoFocusField="text" />);
+    expect(text()).not.toHaveFocus();
+  });
+
+  it("does not select the prefilled text", () => {
+    const { text } = setup({ autoFocusField: "text", initialText: "unsent draft" });
+    const field = text() as HTMLTextAreaElement;
+    expect(field).toHaveFocus();
+    expect(field.selectionEnd - field.selectionStart).toBe(0);
+    expect(field).toHaveValue("unsent draft");
+  });
+
+  it("leaves focus alone when omitted", () => {
+    setup();
+    expect(document.body).toHaveFocus();
+  });
+});
+
+describe("ComposeForm submitFailedMessage", () => {
+  const CUSTOM = "Couldn't confirm creation.";
+
+  it("replaces the lost-response message", async () => {
+    const { user, onSubmit, author, text, submit } = setup({ submitFailedMessage: CUSTOM });
+    onSubmit.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await user.type(author(), "ann");
+    await user.type(text(), "hello");
+
+    await user.click(submit());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(CUSTOM);
+    expect(screen.queryByText(SUBMIT_FAILED_MESSAGE)).not.toBeInTheDocument();
+  });
+
+  it("does not replace field errors", async () => {
+    const { user, onSubmit, author, text, submit } = setup({ submitFailedMessage: CUSTOM });
+    onSubmit.mockRejectedValueOnce(validationError([{ path: "text", message: "is required" }]));
+    await user.type(author(), "ann");
+    await user.type(text(), "hello");
+
+    await user.click(submit());
+
+    expect(await screen.findByText("Message is required")).toBeInTheDocument();
+    expect(screen.queryByText(CUSTOM)).not.toBeInTheDocument();
+  });
+
+  it("does not replace the server's unavailable message", async () => {
+    const message = "Could not find a free room name, please try again";
+    const { user, onSubmit, author, text, submit } = setup({ submitFailedMessage: CUSTOM });
+    onSubmit.mockRejectedValueOnce(
+      Object.assign(new Error(message), { name: "ApiRequestError", status: 503, code: "unavailable" }),
+    );
+    await user.type(author(), "ann");
+    await user.type(text(), "hello");
+
+    await user.click(submit());
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.queryByText(CUSTOM)).not.toBeInTheDocument();
+  });
+});
+
+describe("ComposeForm initialErrors", () => {
+  it("shows field and form errors on mount, tied to their fields", () => {
+    const { author, text } = setup({
+      initialErrors: { author: "is required", text: "is required", form: "lat must be between -90 and 90" },
+    });
+
+    expect(screen.getByText("Display name is required")).toBeInTheDocument();
+    expect(screen.getByText("Message is required")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("lat must be between -90 and 90");
+    expect(author()).toHaveAttribute("aria-invalid", "true");
+    expect(text()).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("ignores later values of the prop", () => {
+    const { onSubmit, rerender } = setup({ initialErrors: { form: "first" } });
+
+    rerender(<ComposeForm initialAuthor="" onSubmit={onSubmit} initialErrors={{ form: "second" }} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("first");
+  });
+
+  it("is replaced by client validation on the next submit", async () => {
+    const { user, submit } = setup({ initialErrors: { form: "restored error" } });
+    expect(screen.getByText("restored error")).toBeInTheDocument();
+
+    await user.click(submit());
+
+    expect(await screen.findByText(AUTHOR_ERROR)).toBeInTheDocument();
+    expect(screen.queryByText("restored error")).not.toBeInTheDocument();
+  });
+
+  it("is cleared by a valid submit while the request is pending", async () => {
+    const { user, onSubmit, submit } = setup({
+      initialAuthor: "ann",
+      initialText: "hello",
+      initialErrors: { form: "restored error" },
+    });
+    onSubmit.mockImplementation(() => new Promise<void>(() => {}));
+    expect(screen.getByText("restored error")).toBeInTheDocument();
+
+    await user.click(submit());
+
+    await waitFor(() => expect(screen.queryByText("restored error")).not.toBeInTheDocument());
+  });
+});

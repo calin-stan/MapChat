@@ -98,3 +98,21 @@ describe("submitErrors", () => {
     }
   });
 });
+
+describe("submitErrors with a fallback", () => {
+  const FALLBACK = "Couldn't confirm creation.";
+
+  it("uses the fallback only for a lost response", () => {
+    expect(submitErrors(new TypeError("Failed to fetch"), FALLBACK)).toEqual({ form: FALLBACK });
+    expect(submitErrors(requestError(502, undefined, "Request failed with status 502"), FALLBACK)).toEqual({
+      form: FALLBACK,
+    });
+  });
+
+  it("keeps validation fields and the unavailable message", () => {
+    expect(submitErrors(validationError([{ path: "lat", message: "must be between -90 and 90" }]), FALLBACK)).toEqual({
+      form: "lat must be between -90 and 90",
+    });
+    expect(submitErrors(requestError(503, "unavailable", "try again"), FALLBACK)).toEqual({ form: "try again" });
+  });
+});
