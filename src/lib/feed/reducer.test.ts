@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { FeedAction, FeedEffect, FeedError, FeedState } from "@/lib/feed/types";
-import type { Message, MessagePage } from "@/lib/schemas/types";
+import type { CatchUpPage, Message, MessagePage } from "@/lib/schemas/types";
 
 import {
   EMPTY_HISTORY_MESSAGE,
@@ -25,6 +25,7 @@ function msg(n: number, micros = n): Message {
   };
 }
 
+const m0 = msg(0);
 const m1 = msg(1);
 const m2 = msg(2);
 const m3 = msg(3);
@@ -495,6 +496,294 @@ describe("feedReducer channel outcomes", () => {
       action: { type: "closed" },
       after: { status: "closed", polling: false },
       effects: [unsubscribe, stopPolling, stopIdleTimer],
+    },
+  ])("$name", (row) => check(row));
+});
+
+const catchUp = (messages: Message[], nextCursor: string, hasMore: boolean): CatchUpPage => ({
+  messages,
+  nextCursor,
+  hasMore,
+});
+const fetchOlder = (before: string): FeedEffect => ({ type: "fetchOlder", before });
+
+describe("feedReducer fetching newer", () => {
+  it.each<Row>([
+    {
+      name: "pollTick while polling and idle fetches after the bookmark",
+      before: pollingRoom(),
+      action: { type: "pollTick" },
+      after: { inflight: "newer" },
+      effects: [fetchNewer(m2.id)],
+    },
+    {
+      name: "pollTick while a fetch is in flight is ignored",
+      before: pollingRoom({ inflight: "older" }),
+      action: { type: "pollTick" },
+      after: "ignored",
+    },
+    {
+      name: "pollTick during a backlog is ignored",
+      before: pollingRoom({ backlog: true }),
+      action: { type: "pollTick" },
+      after: "ignored",
+    },
+    {
+      name: "pollTick in realtime is ignored",
+      before: live(),
+      action: { type: "pollTick" },
+      after: "ignored",
+    },
+    {
+      name: "pollTick without a bookmark is ignored",
+      before: pollingRoom({ syncCursor: null }),
+      action: { type: "pollTick" },
+      after: "ignored",
+    },
+    {
+      name: "newerRequested drains a backlog while polling",
+      before: pollingRoom({ backlog: true }),
+      action: { type: "newerRequested" },
+      after: { inflight: "newer" },
+      effects: [fetchNewer(m2.id)],
+    },
+    {
+      name: "newerRequested drains a backlog in realtime",
+      before: live({ backlog: true }),
+      action: { type: "newerRequested" },
+      after: { inflight: "newer" },
+      effects: [fetchNewer(m2.id)],
+    },
+    {
+      name: "newerRequested while a fetch is in flight is ignored",
+      before: live({ inflight: "newer" }),
+      action: { type: "newerRequested" },
+      after: "ignored",
+    },
+    {
+      name: "newerRequested while opening is ignored",
+      before: state({ inflight: "initial" }),
+      action: { type: "newerRequested" },
+      after: "ignored",
+    },
+    {
+      name: "newerLoaded merges and advances the bookmark to nextCursor",
+      before: pollingRoom({ inflight: "newer" }),
+      action: { type: "newerLoaded", page: catchUp([m3, m4], m4.id, false) },
+      after: { inflight: null, messages: [m1, m2, m3, m4], syncCursor: m4.id },
+    },
+    {
+      name: "newerLoaded trusts nextCursor even for an empty page",
+      before: pollingRoom({ inflight: "newer" }),
+      action: { type: "newerLoaded", page: catchUp([], m3.id, false) },
+      after: { inflight: null, syncCursor: m3.id },
+    },
+    {
+      name: "newerLoaded with hasMore records a backlog",
+      before: pollingRoom({ inflight: "newer" }),
+      action: { type: "newerLoaded", page: catchUp([m3], m3.id, true) },
+      after: { inflight: null, messages: [m1, m2, m3], syncCursor: m3.id, backlog: true },
+    },
+    {
+      name: "newerLoaded without hasMore clears the backlog",
+      before: pollingRoom({ inflight: "newer", backlog: true }),
+      action: { type: "newerLoaded", page: catchUp([m3], m3.id, false) },
+      after: { inflight: null, messages: [m1, m2, m3], syncCursor: m3.id, backlog: false },
+    },
+    {
+      name: "newerLoaded runs an owed catch-up from the new bookmark",
+      before: pollingRoom({ inflight: "newer", newerWanted: true }),
+      action: { type: "newerLoaded", page: catchUp([m3], m3.id, false) },
+      after: { inflight: "newer", newerWanted: false, messages: [m1, m2, m3], syncCursor: m3.id },
+      effects: [fetchNewer(m3.id)],
+    },
+    {
+      name: "newerLoaded with an owed catch-up but a backlog only clears the flag",
+      before: pollingRoom({ inflight: "newer", newerWanted: true }),
+      action: { type: "newerLoaded", page: catchUp([m3], m3.id, true) },
+      after: {
+        inflight: null,
+        newerWanted: false,
+        backlog: true,
+        messages: [m1, m2, m3],
+        syncCursor: m3.id,
+      },
+    },
+    {
+      name: "newerLoaded dedupes a message already shown from a POST response",
+      before: pollingRoom({ inflight: "newer", messages: [m1, m2, m4] }),
+      action: { type: "newerLoaded", page: catchUp([m3, m4], m4.id, false) },
+      after: { inflight: null, messages: [m1, m2, m3, m4], syncCursor: m4.id },
+    },
+    {
+      name: "newerLoaded clears a newer error",
+      before: pollingRoom({
+        inflight: "newer",
+        error: { op: "newer", message: "boom", notFound: false },
+      }),
+      action: { type: "newerLoaded", page: catchUp([m3], m3.id, false) },
+      after: { inflight: null, messages: [m1, m2, m3], syncCursor: m3.id, error: null },
+    },
+    {
+      name: "newerLoaded keeps an older error",
+      before: pollingRoom({
+        inflight: "newer",
+        error: { op: "older", message: "boom", notFound: false },
+      }),
+      action: { type: "newerLoaded", page: catchUp([m3], m3.id, false) },
+      after: { inflight: null, messages: [m1, m2, m3], syncCursor: m3.id },
+    },
+    {
+      name: "newerLoaded without a newer fetch in flight is ignored",
+      before: pollingRoom(),
+      action: { type: "newerLoaded", page: catchUp([m3], m3.id, false) },
+      after: "ignored",
+    },
+  ])("$name", (row) => check(row));
+});
+
+describe("feedReducer fetching older", () => {
+  it.each<Row>([
+    {
+      name: "olderRequested fetches before the older cursor",
+      before: live(),
+      action: { type: "olderRequested" },
+      after: { inflight: "older" },
+      effects: [fetchOlder(m1.id)],
+    },
+    {
+      name: "olderRequested with nothing older is ignored",
+      before: live({ hasOlder: false }),
+      action: { type: "olderRequested" },
+      after: "ignored",
+    },
+    {
+      name: "a second olderRequested before the page lands is ignored",
+      before: live({ inflight: "older" }),
+      action: { type: "olderRequested" },
+      after: "ignored",
+    },
+    {
+      name: "olderRequested while opening is ignored",
+      before: state({ inflight: "initial" }),
+      action: { type: "olderRequested" },
+      after: "ignored",
+    },
+    {
+      name: "olderLoaded prepends, moves the older cursor and leaves the bookmark",
+      before: live({ inflight: "older", messages: [m3, m4], olderCursor: m3.id, syncCursor: m4.id }),
+      action: { type: "olderLoaded", page: page([m1, m2], true) },
+      after: {
+        inflight: null,
+        messages: [m1, m2, m3, m4],
+        olderCursor: m1.id,
+        hasOlder: true,
+        syncCursor: m4.id,
+      },
+    },
+    {
+      name: "olderLoaded on the last page hides Load older",
+      before: live({ inflight: "older", messages: [m2, m3], olderCursor: m2.id, syncCursor: m3.id }),
+      action: { type: "olderLoaded", page: page([m1], false) },
+      after: { inflight: null, messages: [m1, m2, m3], olderCursor: m1.id, hasOlder: false },
+    },
+    {
+      name: "olderLoaded with an empty page keeps the cursor",
+      before: live({ inflight: "older" }),
+      action: { type: "olderLoaded", page: page([], false) },
+      after: { inflight: null, hasOlder: false },
+    },
+    {
+      name: "olderLoaded runs an owed catch-up",
+      before: live({ inflight: "older", newerWanted: true }),
+      action: { type: "olderLoaded", page: page([m0], false) },
+      after: {
+        inflight: "newer",
+        newerWanted: false,
+        messages: [m0, m1, m2],
+        olderCursor: m0.id,
+        hasOlder: false,
+      },
+      effects: [fetchNewer(m2.id)],
+    },
+    {
+      name: "olderLoaded clears an older error",
+      before: live({ inflight: "older", error: { op: "older", message: "boom", notFound: false } }),
+      action: { type: "olderLoaded", page: page([m0], false) },
+      after: { inflight: null, messages: [m0, m1, m2], olderCursor: m0.id, hasOlder: false, error: null },
+    },
+    {
+      name: "olderLoaded without an older fetch in flight is ignored",
+      before: live(),
+      action: { type: "olderLoaded", page: page([m0], false) },
+      after: "ignored",
+    },
+  ])("$name", (row) => check(row));
+});
+
+describe("feedReducer receiving and sending", () => {
+  it.each<Row>([
+    {
+      name: "received appends a live message without moving the bookmark",
+      before: live(),
+      action: { type: "received", message: m3 },
+      after: { messages: [m1, m2, m3] },
+    },
+    {
+      name: "received with a duplicate id is a no-op",
+      before: live(),
+      action: { type: "received", message: m2 },
+      after: "ignored",
+    },
+    {
+      name: "received out of order is sorted in",
+      before: live({ messages: [m1, m3] }),
+      action: { type: "received", message: m2 },
+      after: { messages: [m1, m2, m3] },
+    },
+    {
+      name: "received during a backlog is displayed and the backlog stays",
+      before: live({ backlog: true }),
+      action: { type: "received", message: m3 },
+      after: { messages: [m1, m2, m3] },
+    },
+    {
+      name: "received while opening is ignored",
+      before: state({ inflight: "initial" }),
+      action: { type: "received", message: m1 },
+      after: "ignored",
+    },
+    {
+      name: "sent in realtime restarts the idle timer",
+      before: live(),
+      action: { type: "sent" },
+      after: {},
+      effects: [startIdleTimer],
+    },
+    {
+      name: "sent while polling tries realtime and keeps polling",
+      before: pollingRoom(),
+      action: { type: "sent" },
+      after: { channel: "subscribing" },
+      effects: [subscribe],
+    },
+    {
+      name: "sent while a re-subscribe is pending does not subscribe again",
+      before: pollingRoom({ channel: "subscribing" }),
+      action: { type: "sent" },
+      after: "ignored",
+    },
+    {
+      name: "sent while hidden does not subscribe",
+      before: pollingRoom({ hidden: true }),
+      action: { type: "sent" },
+      after: "ignored",
+    },
+    {
+      name: "sent while opening is ignored",
+      before: state({ inflight: "initial" }),
+      action: { type: "sent" },
+      after: "ignored",
     },
   ])("$name", (row) => check(row));
 });

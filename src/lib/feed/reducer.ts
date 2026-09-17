@@ -94,6 +94,12 @@ function autoCatchUp(state: FeedState, fx: FeedEffect[]): FeedState {
   return fetchNewer(state, state.syncCursor, fx);
 }
 
+/** Runs a deferred catch-up once the blocking fetch has settled (spec §5 `newerLoaded`). */
+function runOwedCatchUp(state: FeedState, fx: FeedEffect[]): FeedState {
+  if (!state.newerWanted) return state;
+  return autoCatchUp({ ...state, newerWanted: false }, fx);
+}
+
 /** Enter polling: start the timer once, then auto catch-up. Already polling: no-op. */
 function enterPolling(state: FeedState, fx: FeedEffect[]): FeedState {
   if (state.polling) return state;
@@ -205,6 +211,72 @@ export function feedReducer(state: FeedState, action: FeedAction): Result {
     case "closed": {
       fx.push({ type: "unsubscribe" }, { type: "stopPolling" }, { type: "stopIdleTimer" });
       return [{ ...state, status: "closed", channel: "none", polling: false }, fx];
+    }
+
+    case "pollTick": {
+      if (!state.polling || state.inflight !== null || state.backlog) return ignore(state);
+      if (state.syncCursor === null) return ignore(state);
+      return [fetchNewer(state, state.syncCursor, fx), fx];
+    }
+
+    case "newerRequested": {
+      if (state.status !== "open" || state.inflight !== null) return ignore(state);
+      if (state.syncCursor === null) return ignore(state);
+      return [fetchNewer(state, state.syncCursor, fx), fx];
+    }
+
+    case "newerLoaded": {
+      if (state.inflight !== "newer") return ignore(state);
+      const next: FeedState = {
+        ...clearError(state, "newer"),
+        inflight: null,
+        messages: mergeMessages(state.messages, action.page.messages),
+        syncCursor: action.page.nextCursor,
+        backlog: action.page.hasMore,
+      };
+      return [runOwedCatchUp(next, fx), fx];
+    }
+
+    case "olderRequested": {
+      if (state.status !== "open" || state.inflight !== null || !state.hasOlder) {
+        return ignore(state);
+      }
+      if (state.olderCursor === null) return ignore(state);
+      fx.push({ type: "fetchOlder", before: state.olderCursor });
+      return [{ ...state, inflight: "older" }, fx];
+    }
+
+    case "olderLoaded": {
+      if (state.inflight !== "older") return ignore(state);
+      const older = sortPage(action.page.messages);
+      const next: FeedState = {
+        ...clearError(state, "older"),
+        inflight: null,
+        messages: mergeMessages(state.messages, older),
+        olderCursor: older.length > 0 ? older[0].id : state.olderCursor,
+        hasOlder: action.page.hasMore,
+      };
+      return [runOwedCatchUp(next, fx), fx];
+    }
+
+    case "received": {
+      if (state.status !== "open") return ignore(state);
+      const messages = mergeMessages(state.messages, [action.message]);
+      if (messages === state.messages) return ignore(state);
+      return [{ ...state, messages }, fx];
+    }
+
+    case "sent": {
+      if (state.hidden) return ignore(state);
+      if (state.channel === "subscribed") {
+        fx.push({ type: "startIdleTimer" });
+        return [state, fx];
+      }
+      if (state.status === "open" && state.channel === "none") {
+        fx.push({ type: "subscribe" });
+        return [{ ...state, channel: "subscribing" }, fx];
+      }
+      return ignore(state);
     }
 
     default:
