@@ -5,6 +5,7 @@ import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { RealtimeHandlers } from "@/lib/feed/realtime";
 import { FeedNotReadyError, type FeedDeps } from "@/lib/feed/store";
 import {
   ROOM,
@@ -17,6 +18,14 @@ import {
   page,
 } from "@/lib/feed/test-helpers";
 import { useRoomFeed, type RoomFeed, type RoomFeedOptions } from "@/lib/feed/useRoomFeed";
+
+// The default adapter, replaced by a spy: no test here may reach the Supabase client.
+const subscribeToRoom = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/feed/realtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/feed/realtime")>()),
+  subscribeToRoom,
+}));
 
 const OTHER_ROOM = "22222222-2222-4222-8222-222222222222";
 
@@ -35,6 +44,7 @@ function setVisibility(state: "visible" | "hidden") {
 const settle = () => act(async () => {});
 
 afterEach(() => {
+  subscribeToRoom.mockReset();
   setVisibility("visible");
   vi.useRealTimers();
 });
@@ -173,6 +183,27 @@ describe("useRoomFeed", () => {
 
     act(() => realtime.attempts[0].handlers.onFailed("refused"));
     expect(vi.getTimerCount()).toBe(1); // one poll interval, none left over from the first store
+  });
+
+  it("subscribes through subscribeToRoom when no adapter is injected", async () => {
+    const unsubscribe = vi.fn();
+    subscribeToRoom.mockReturnValue({ unsubscribe });
+    const { deps, messages } = fakeDeps();
+    const { result, unmount } = renderHook(() =>
+      useRoomFeed(ROOM, { deps: { messages: deps.messages, config: deps.config } }),
+    );
+    messages.list[0].resolve(page([msg(1)]));
+    await settle();
+
+    expect(subscribeToRoom).toHaveBeenCalledTimes(1);
+    const [roomId, handlers] = subscribeToRoom.mock.calls[0] as [string, RealtimeHandlers];
+    expect(roomId).toBe(ROOM);
+
+    act(() => handlers.onSubscribed());
+    expect(result.current.connection).toBe("realtime");
+
+    unmount();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it("polls instead of subscribing when mounted in a hidden tab", async () => {
